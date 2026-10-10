@@ -1,6 +1,13 @@
 import { clamp01, inGamut, oklabToLinearSrgb } from './oklab.js';
 import { BASE_Y, SCALE, VIEW_TARGET, labToWorld } from './scale.js';
 import { buildShellArrays, buildSliceArrays } from './geometry.js';
+import {
+  GHOST_OPACITY,
+  HAND_OFFSET_Z,
+  HAND_ROTATION_X,
+  HAND_SCALE,
+  PLANE_RADIUS,
+} from './hand.js';
 
 const THREE = AFRAME.THREE;
 const SHELL_SEGMENTS = 96;
@@ -61,6 +68,44 @@ function linearColor(rgb) {
   color.setRGB(clamp01(rgb.r), clamp01(rgb.g), clamp01(rgb.b), THREE.LinearSRGBColorSpace);
   return color;
 }
+
+// Coefficients match oklabToLinearSrgb. The cap is a horizontal disc; each
+// fragment is tested in the solid's local frame, so the cut stays a true
+// cross-section when the solid rotates with the controller.
+const SECTION_VERTEX = `
+  varying vec3 vWorldPosition;
+  void main() {
+    vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+    vWorldPosition = worldPosition.xyz;
+    gl_Position = projectionMatrix * viewMatrix * worldPosition;
+  }
+`;
+
+const SECTION_FRAGMENT = `
+  uniform mat4 solidInverse;
+  uniform float solidScale;
+  uniform float baseY;
+  varying vec3 vWorldPosition;
+  void main() {
+    vec3 local = (solidInverse * vec4(vWorldPosition, 1.0)).xyz;
+    float L = (local.y - baseY) / solidScale;
+    float a = local.x / solidScale;
+    float b = local.z / solidScale;
+    float lRoot = L + 0.3963377774 * a + 0.2158037573 * b;
+    float mRoot = L - 0.1055613458 * a - 0.0638541728 * b;
+    float sRoot = L - 0.0894841775 * a - 1.2914855480 * b;
+    float lmsL = lRoot * lRoot * lRoot;
+    float lmsM = mRoot * mRoot * mRoot;
+    float lmsS = sRoot * sRoot * sRoot;
+    float red = 4.0767416621 * lmsL - 3.3077115913 * lmsM + 0.2309699292 * lmsS;
+    float green = -1.2684380046 * lmsL + 2.6097574011 * lmsM - 0.3413193965 * lmsS;
+    float blue = -0.0041960863 * lmsL - 0.7034186147 * lmsM + 1.7076147010 * lmsS;
+    if (red < -0.0015 || green < -0.0015 || blue < -0.0015 ||
+        red > 1.0015 || green > 1.0015 || blue > 1.0015) discard;
+    gl_FragColor = vec4(red, green, blue, 1.0);
+    #include <colorspace_fragment>
+  }
+`;
 
 AFRAME.registerComponent('gallery', {
   init() {
@@ -138,23 +183,46 @@ AFRAME.registerComponent('oklab-rgb-solid', {
     this.rayOrigin = new THREE.Vector3();
     this.rayDirection = new THREE.Vector3();
     this.rayPoint = new THREE.Vector3();
+    this.held = false;
+    this.handEl = null;
+    this.controllerCutY = null;
+    this.axisLabels = [];
 
     const renderer = this.el.sceneEl.renderer;
     renderer.localClippingEnabled = true;
 
     const root = new THREE.Group();
     root.name = 'oklab-rgb-solid';
+    this.exhibitRoot = root;
     this.el.setObject3D('mesh', root);
 
+    this.heldRoot = new THREE.Group();
+    this.heldRoot.name = 'oklab-held';
+    root.add(this.heldRoot);
+
     const shellArrays = buildShellArrays(SHELL_SEGMENTS);
-    this.clipPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0);
+    this.clipPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 1e6);
+    this.ghostClipPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 1e6);
     this.shellMaterial = vertexColorMaterial({
       side: THREE.FrontSide,
       clippingPlanes: [this.clipPlane],
     });
     this.shellMesh = new THREE.Mesh(geometryFromArrays(shellArrays), this.shellMaterial);
     this.shellMesh.name = 'oklab-shell';
-    root.add(this.shellMesh);
+    this.heldRoot.add(this.shellMesh);
+
+    this.ghostMaterial = vertexColorMaterial({
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: GHOST_OPACITY,
+      depthWrite: false,
+      clippingPlanes: [this.ghostClipPlane],
+    });
+    this.ghostMesh = new THREE.Mesh(this.shellMesh.geometry, this.ghostMaterial);
+    this.ghostMesh.name = 'oklab-ghost';
+    this.ghostMesh.renderOrder = 3;
+    this.ghostMesh.visible = false;
+    this.heldRoot.add(this.ghostMesh);
 
     this.sliceMesh = new THREE.Mesh(
       new THREE.BufferGeometry(),
@@ -168,13 +236,20 @@ AFRAME.registerComponent('oklab-rgb-solid', {
     this.sliceMesh.position.y = -0.0015;
     this.sliceMesh.renderOrder = 1;
     this.sliceMesh.name = 'oklab-slice';
-    root.add(this.sliceMesh);
+    this.heldRoot.add(this.sliceMesh);
 
-    root.add(buildChromaAxes());
+    this.chromaAxes = buildChromaAxes();
+    root.add(this.chromaAxes);
+    this.buildCutPlane();
     this.buildSlider();
     this.buildPanel();
     this.refreshSlice();
     this.updateClipPlane();
+  },
+
+  remove() {
+    if (this.planeAnchor) this.planeAnchor.removeFromParent();
+    if (this.previewHand) this.previewHand.removeFromParent();
   },
 
   play() {
@@ -207,6 +282,84 @@ AFRAME.registerComponent('oklab-rgb-solid', {
     this.updateClipPlane();
     this.billboardPanel();
     if (this.sliderDrag) this.applySliderRay();
+  },
+
+  // Parent the colored solid to a controller (or a stand-in object). The
+  // slider, axis legend, and plinth stay where they are.
+  attachToObject(object3D) {
+    this.held = true;
+    object3D.add(this.heldRoot);
+    this.heldRoot.position.set(0, 0, HAND_OFFSET_Z);
+    this.heldRoot.rotation.set(HAND_ROTATION_X, 0, 0);
+    this.heldRoot.scale.setScalar(HAND_SCALE);
+    this.setExhibitChromeVisible(false);
+    this.endControllerCut();
+  },
+
+  attachToHand(handEl) {
+    this.handEl = handEl;
+    this.attachToObject(handEl.object3D);
+    handEl.setAttribute('raycaster', 'showLine', false);
+  },
+
+  releaseFromHand() {
+    const handEl = this.handEl;
+    this.handEl = null;
+    this.held = false;
+    this.controllerCutY = null;
+    this.exhibitRoot.add(this.heldRoot);
+    this.heldRoot.position.set(0, 0, 0);
+    this.heldRoot.rotation.set(0, 0, 0);
+    this.heldRoot.scale.set(1, 1, 1);
+    this.setExhibitChromeVisible(true);
+    this.updateClipPlane();
+    if (handEl) handEl.setAttribute('raycaster', 'showLine', true);
+    if (this.previewHand) this.previewHand.removeFromParent();
+  },
+
+  setExhibitChromeVisible(visible) {
+    this.chromaAxes.visible = visible;
+    if (this.slider) this.slider.setAttribute('visible', visible);
+    for (const label of this.axisLabels) label.setAttribute('visible', visible);
+  },
+
+  // World-horizontal cut at planeY. tip is where the disc is drawn; its
+  // height is the plane. Passing no tip keeps the current disc position.
+  setControllerCut(planeY, tip) {
+    this.controllerCutY = planeY;
+    this.planeAnchor.rotation.set(0, 0, 0);
+    if (tip) this.planeAnchor.position.set(tip.x, planeY, tip.z);
+    this.updateClipPlane();
+  },
+
+  endControllerCut() {
+    this.controllerCutY = null;
+    this.updateClipPlane();
+  },
+
+  // Pose the solid as if the left controller were holding it, and open a
+  // level cut through it. Used to check the gesture without a headset.
+  previewHeldCut({ tilt = 0.4, yaw = 0.25, cut = 0.5 } = {}) {
+    if (!this.previewHand) {
+      this.previewHand = new THREE.Group();
+      this.previewHand.name = 'preview-hand';
+    }
+    this.el.sceneEl.object3D.add(this.previewHand);
+    this.previewHand.position.set(0, 0, 0);
+    this.previewHand.rotation.set(Math.PI / 2 - tilt, yaw, 0);
+    this.attachToObject(this.previewHand);
+    this.previewHand.updateWorldMatrix(true, true);
+    const center = new THREE.Box3().setFromObject(this.shellMesh).getCenter(new THREE.Vector3());
+    this.previewHand.position.set(
+      VIEW_TARGET.x - center.x,
+      VIEW_TARGET.y - center.y,
+      VIEW_TARGET.z - center.z,
+    );
+    this.previewHand.updateWorldMatrix(true, true);
+    const placed = new THREE.Box3().setFromObject(this.shellMesh);
+    const planeY = placed.min.y + (placed.max.y - placed.min.y) * cut;
+    this.setControllerCut(planeY, placed.getCenter(new THREE.Vector3()));
+    return planeY;
   },
 
   setLightness(value) {
@@ -264,15 +417,92 @@ AFRAME.registerComponent('oklab-rgb-solid', {
 
   updateClipPlane() {
     if (!this.shellMesh) return;
+    const cutting = this.controllerCutY !== null;
+    this.ghostMesh.visible = cutting;
+    this.planeAnchor.visible = cutting;
+    if (cutting) {
+      this.sliceMesh.visible = false;
+      this.planePoint.set(0, this.controllerCutY, 0);
+      this.clipPlane.setFromNormalAndCoplanarPoint(this.planeNormal.set(0, -1, 0), this.planePoint);
+      this.ghostClipPlane.setFromNormalAndCoplanarPoint(this.planeNormal.set(0, 1, 0), this.planePoint);
+      this.shellMesh.updateWorldMatrix(true, false);
+      this.sectionMaterial.uniforms.solidInverse.value.copy(this.shellMesh.matrixWorld).invert();
+      return;
+    }
+
+    this.sliceMesh.visible = !this.held && this.cutaway;
+    if (this.held || !this.cutaway) {
+      this.clipPlane.normal.set(0, -1, 0);
+      this.clipPlane.constant = 1e6;
+      return;
+    }
+
     this.shellMesh.updateWorldMatrix(true, false);
-    const yCut = this.cutaway
-      ? labToWorld(this.lightness, 0, 0).y
-      : BASE_Y + SCALE + 5;
+    const yCut = labToWorld(this.lightness, 0, 0).y;
     this.planePoint.set(0, yCut, 0);
     this.planeNormal.set(0, -1, 0);
     this.shellMesh.localToWorld(this.planePoint);
     this.planeNormal.transformDirection(this.shellMesh.matrixWorld);
     this.clipPlane.setFromNormalAndCoplanarPoint(this.planeNormal, this.planePoint);
+  },
+
+  buildCutPlane() {
+    this.sectionMaterial = new THREE.ShaderMaterial({
+      toneMapped: false,
+      side: THREE.DoubleSide,
+      polygonOffset: true,
+      polygonOffsetFactor: -4,
+      polygonOffsetUnits: -4,
+      uniforms: {
+        solidInverse: { value: new THREE.Matrix4() },
+        solidScale: { value: SCALE },
+        baseY: { value: BASE_Y },
+      },
+      vertexShader: SECTION_VERTEX,
+      fragmentShader: SECTION_FRAGMENT,
+    });
+
+    this.planeAnchor = new THREE.Group();
+    this.planeAnchor.name = 'cut-plane';
+    this.planeAnchor.visible = false;
+    this.el.sceneEl.object3D.add(this.planeAnchor);
+
+    const fill = new THREE.Mesh(
+      new THREE.CircleGeometry(PLANE_RADIUS, 64),
+      new THREE.MeshBasicMaterial({
+        color: 0xf4f0e8,
+        transparent: true,
+        opacity: 0.14,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        toneMapped: false,
+      }),
+    );
+    fill.rotation.x = -Math.PI / 2;
+    fill.renderOrder = 2;
+
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(PLANE_RADIUS - 0.012, PLANE_RADIUS, 80),
+      new THREE.MeshBasicMaterial({
+        color: 0xf7f4ee,
+        transparent: true,
+        opacity: 0.9,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        toneMapped: false,
+      }),
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.renderOrder = 2;
+
+    this.sectionMesh = new THREE.Mesh(
+      new THREE.CircleGeometry(PLANE_RADIUS - 0.001, 72),
+      this.sectionMaterial,
+    );
+    this.sectionMesh.name = 'oklab-section';
+    this.sectionMesh.rotation.x = -Math.PI / 2;
+    this.sectionMesh.renderOrder = 2;
+    this.planeAnchor.add(fill, ring, this.sectionMesh);
   },
 
   billboardPanel() {
@@ -355,22 +585,29 @@ AFRAME.registerComponent('oklab-rgb-solid', {
 
     const backing = document.createElement('a-plane');
     backing.setAttribute('width', 1.05);
-    backing.setAttribute('height', 1.05);
-    backing.setAttribute('position', { x: 0, y: -0.42, z: -0.02 });
+    backing.setAttribute('height', 1.22);
+    backing.setAttribute('position', { x: 0, y: -0.52, z: -0.02 });
     backing.setAttribute('material', { color: '#141820', shader: 'flat', opacity: 0.88 });
     this.panel.appendChild(backing);
 
     const body = document.createElement('a-text');
     body.setAttribute('value', [
-      'sRGB solid in Oklab',
+      'The solid is on your',
+      'left controller. Lightness',
+      'points the way it aims.',
       '',
-      'Every displayable color,',
-      'at its Oklab position.',
-      'L, a, and b share a scale.',
+      'Hold the right trigger.',
+      'A level plane extends',
+      'from that tip. Below it',
+      'the solid stays. Above it',
+      'the solid turns to glass,',
+      'and the cut shows inside.',
+      '',
+      'Release, and it closes.',
       '',
       'Left stick walks.',
-      'Right stick moves the cut.',
-      'Flick sideways to turn.',
+      'Flick the right stick',
+      'sideways to turn.',
     ].join('\n'));
     body.setAttribute('color', '#f4f0e8');
     body.setAttribute('width', 1.05);
@@ -379,29 +616,6 @@ AFRAME.registerComponent('oklab-rgb-solid', {
     body.setAttribute('baseline', 'top');
     body.setAttribute('position', { x: -0.48, y: 0, z: 0 });
     this.panel.appendChild(body);
-
-    this.cutReadout = document.createElement('a-text');
-    this.cutReadout.setAttribute('color', '#f4f0e8');
-    this.cutReadout.setAttribute('width', 1.05);
-    this.cutReadout.setAttribute('align', 'left');
-    this.cutReadout.setAttribute('baseline', 'top');
-    this.cutReadout.setAttribute('position', { x: -0.46, y: -0.7, z: 0 });
-    this.panel.appendChild(this.cutReadout);
-
-    const button = document.createElement('a-entity');
-    button.setAttribute('class', 'clickable');
-    button.setAttribute('geometry', { primitive: 'plane', width: 0.72, height: 0.16 });
-    button.setAttribute('material', { color: '#2c3140', shader: 'flat' });
-    button.setAttribute('position', { x: 0, y: -0.86, z: 0.01 });
-    button.addEventListener('click', () => this.toggleCutaway());
-    this.modeButtonText = document.createElement('a-text');
-    this.modeButtonText.setAttribute('value', 'Full solid');
-    this.modeButtonText.setAttribute('align', 'center');
-    this.modeButtonText.setAttribute('color', '#f4f0e8');
-    this.modeButtonText.setAttribute('width', 0.66);
-    this.modeButtonText.setAttribute('position', '0 0 0.01');
-    button.appendChild(this.modeButtonText);
-    this.panel.appendChild(button);
 
     this.addAxisLabel('+a  red', 0.92, 0.14, 0.18, 0);
     this.addAxisLabel('-a  green', -0.92, 0.14, 0.18, 0);
@@ -419,6 +633,7 @@ AFRAME.registerComponent('oklab-rgb-solid', {
     label.setAttribute('position', { x, y, z });
     label.setAttribute('rotation', { x: 0, y: yaw, z: 0 });
     this.el.appendChild(label);
+    this.axisLabels.push(label);
   },
 });
 
@@ -664,14 +879,13 @@ AFRAME.registerComponent('locomotion', {
   },
 });
 
-AFRAME.registerComponent('lightness-stick', {
+AFRAME.registerComponent('turn-stick', {
   init() {
     this.turned = false;
     this.el.addEventListener('thumbstickmoved', (event) => {
       if (!this.el.sceneEl.is('vr-mode')) return;
       const x = event.detail.x;
       const y = event.detail.y;
-      const solid = document.getElementById('solid').components['oklab-rgb-solid'];
       if (Math.abs(x) > Math.abs(y) && Math.abs(x) > 0.75) {
         if (!this.turned) {
           this.turned = true;
@@ -680,8 +894,85 @@ AFRAME.registerComponent('lightness-stick', {
         return;
       }
       if (Math.abs(x) < 0.3) this.turned = false;
-      if (Math.abs(y) > 0.2) solid.addLightness(-y * 0.008);
     });
+  },
+});
+
+AFRAME.registerComponent('hold-solid', {
+  init() {
+    this.onEnterVR = () => {
+      const solid = document.getElementById('solid').components['oklab-rgb-solid'];
+      if (solid) solid.attachToHand(this.el);
+    };
+    this.onExitVR = () => {
+      const solid = document.getElementById('solid').components['oklab-rgb-solid'];
+      if (solid) solid.releaseFromHand();
+    };
+    this.el.sceneEl.addEventListener('enter-vr', this.onEnterVR);
+    this.el.sceneEl.addEventListener('exit-vr', this.onExitVR);
+  },
+  tick() {
+    if (!this.el.sceneEl.is('vr-mode')) return;
+    const data = this.el.getAttribute('raycaster');
+    if (data && data.showLine) this.el.setAttribute('raycaster', 'showLine', false);
+  },
+  remove() {
+    this.el.sceneEl.removeEventListener('enter-vr', this.onEnterVR);
+    this.el.sceneEl.removeEventListener('exit-vr', this.onExitVR);
+  },
+});
+
+AFRAME.registerComponent('cut-plane', {
+  init() {
+    this.cutting = false;
+    this.hidLine = false;
+    this.tip = new THREE.Vector3();
+    this.forward = new THREE.Vector3();
+    this.onTriggerDown = () => {
+      this.cutting = true;
+      this.sync();
+    };
+    this.onTriggerUp = () => {
+      this.cutting = false;
+      const solid = document.getElementById('solid').components['oklab-rgb-solid'];
+      if (solid) solid.endControllerCut();
+      if (this.hidLine) {
+        this.el.setAttribute('raycaster', 'showLine', true);
+        this.hidLine = false;
+      }
+    };
+    this.el.addEventListener('triggerdown', this.onTriggerDown);
+    this.el.addEventListener('triggerup', this.onTriggerUp);
+  },
+  tick() {
+    if (!this.cutting) return;
+    const data = this.el.getAttribute('raycaster');
+    if (data && data.showLine) {
+      this.el.setAttribute('raycaster', 'showLine', false);
+      this.hidLine = true;
+    }
+    this.sync();
+  },
+  sync() {
+    const solid = document.getElementById('solid').components['oklab-rgb-solid'];
+    if (!solid) return;
+    this.readTip(this.tip);
+    solid.setControllerCut(this.tip.y, this.tip);
+  },
+  readTip(target) {
+    const component = this.el.components.raycaster;
+    if (component && component.raycaster) {
+      component.updateOriginDirection();
+      return target.copy(component.raycaster.ray.origin);
+    }
+    this.el.object3D.updateWorldMatrix(true, false);
+    this.forward.set(0, 0, -1).transformDirection(this.el.object3D.matrixWorld);
+    this.el.object3D.getWorldPosition(target);
+    return target.addScaledVector(this.forward, 0.12);
+  },
+  remove() {
+    this.el.removeEventListener('triggerdown', this.onTriggerDown);
+    this.el.removeEventListener('triggerup', this.onTriggerUp);
   },
 });
 
