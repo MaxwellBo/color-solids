@@ -1,6 +1,6 @@
 import { clamp01, inGamut, oklabToLinearSrgb } from './oklab.js';
 import { BASE_Y, SCALE, VIEW_TARGET, labToWorld } from './scale.js';
-import { buildShellArrays, buildSliceArrays } from './geometry.js';
+import { buildEdgeTubeArrays, buildShellArrays, buildSliceArrays } from './geometry.js';
 import {
   HAND_OFFSET_Z,
   HAND_ROTATION_X,
@@ -10,7 +10,8 @@ import {
 
 const THREE = AFRAME.THREE;
 const SHELL_SEGMENTS = 96;
-const WIRE_SEGMENTS = 24;
+const EDGE_SEGMENTS = 48;
+const EDGE_RADIUS = 0.02;
 const SLICE_DIVISIONS = 160;
 const SLIDER_X = 1.18;
 const DEFAULT_LIGHTNESS = 0.68;
@@ -213,11 +214,16 @@ AFRAME.registerComponent('oklab-rgb-solid', {
 
     this.ghostMaterial = vertexColorMaterial({
       side: THREE.DoubleSide,
-      wireframe: true,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
       clippingPlanes: [this.ghostClipPlane],
     });
-    this.ghostMesh = new THREE.Mesh(geometryFromArrays(buildShellArrays(WIRE_SEGMENTS)), this.ghostMaterial);
-    this.ghostMesh.name = 'oklab-ghost';
+    this.ghostMesh = new THREE.Mesh(
+      geometryFromArrays(buildEdgeTubeArrays(EDGE_SEGMENTS, EDGE_RADIUS)),
+      this.ghostMaterial,
+    );
+    this.ghostMesh.name = 'oklab-edges';
     this.ghostMesh.renderOrder = 3;
     this.ghostMesh.visible = false;
     this.heldRoot.add(this.ghostMesh);
@@ -598,8 +604,8 @@ AFRAME.registerComponent('oklab-rgb-solid', {
       'A level plane comes out',
       'of that tip. Below the',
       'plane the solid stays.',
-      'Above it, the solid',
-      'becomes a wireframe.',
+      'Above it, only the',
+      'edges remain.',
       '',
       'Release, and it closes.',
       '',
