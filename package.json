@@ -1,0 +1,17 @@
+{
+  "name": "oklab-rgb-solid",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The sRGB color solid rendered in Oklab space with A-Frame VR.",
+  "scripts": {
+    "start": "serve -l 8080 .",
+    "test": "node --test src/*.test.js"
+  },
+  "dependencies": {
+    "aframe": "1.8.0"
+  },
+  "devDependencies": {
+    "serve": "^14.2.5"
+  }
+}
