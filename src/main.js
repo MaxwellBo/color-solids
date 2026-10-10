@@ -584,24 +584,24 @@ AFRAME.registerComponent('oklab-rgb-solid', {
     this.el.appendChild(this.panel);
 
     const backing = document.createElement('a-plane');
-    backing.setAttribute('width', 1.05);
-    backing.setAttribute('height', 1.22);
-    backing.setAttribute('position', { x: 0, y: -0.52, z: -0.02 });
+    backing.setAttribute('width', 1.12);
+    backing.setAttribute('height', 1.28);
+    backing.setAttribute('position', { x: 0, y: -0.5, z: -0.02 });
     backing.setAttribute('material', { color: '#141820', shader: 'flat', opacity: 0.88 });
     this.panel.appendChild(backing);
 
     const body = document.createElement('a-text');
     body.setAttribute('value', [
-      'The solid is on your',
-      'left controller. Lightness',
-      'points the way it aims.',
+      'The solid sits on the',
+      'left controller.',
+      'Lightness follows its aim.',
       '',
       'Hold the right trigger.',
-      'A level plane extends',
-      'from that tip. Below it',
-      'the solid stays. Above it',
-      'the solid turns to glass,',
-      'and the cut shows inside.',
+      'A level plane comes out',
+      'of that tip. Below the',
+      'plane the solid stays.',
+      'Above it, the solid',
+      'turns to glass.',
       '',
       'Release, and it closes.',
       '',
@@ -610,11 +610,11 @@ AFRAME.registerComponent('oklab-rgb-solid', {
       'sideways to turn.',
     ].join('\n'));
     body.setAttribute('color', '#f4f0e8');
-    body.setAttribute('width', 1.05);
-    body.setAttribute('wrap-count', 28);
+    body.setAttribute('width', 0.98);
+    body.setAttribute('wrap-count', 26);
     body.setAttribute('align', 'left');
     body.setAttribute('baseline', 'top');
-    body.setAttribute('position', { x: -0.48, y: 0, z: 0 });
+    body.setAttribute('position', { x: -0.46, y: 0.05, z: 0 });
     this.panel.appendChild(body);
 
     this.addAxisLabel('+a  red', 0.92, 0.14, 0.18, 0);
