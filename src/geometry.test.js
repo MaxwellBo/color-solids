@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildShellArrays, buildSliceArrays } from './geometry.js';
+import { buildEdgeTubeArrays, buildGamutEdgePolylines, buildShellArrays, buildSliceArrays } from './geometry.js';
 import { oklabToLinearSrgb } from './oklab.js';
 import { labToWorld, worldToLab } from './scale.js';
 
@@ -63,6 +63,55 @@ test('the shell is the sRGB cube embedded in Oklab, facing outward', () => {
   assert.equal(foundBlack, true);
   const ratio = outwardRatio(shell.positions, shell.indices);
   assert.ok(ratio > 0.9, `outward ratio ${ratio}`);
+});
+
+test('the gamut edges are the twelve edges of the RGB cube', () => {
+  const edges = buildGamutEdgePolylines(8);
+  assert.equal(edges.length, 12);
+
+  const corners = [
+    [0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1],
+    [1, 1, 0], [1, 0, 1], [0, 1, 1], [1, 1, 1],
+  ];
+  const seen = new Set();
+
+  for (const points of edges) {
+    assert.equal(points.length, 9);
+    const start = [points[0].r, points[0].g, points[0].b];
+    const end = [points[8].r, points[8].g, points[8].b];
+    const changed = start.filter((channel, index) => channel !== end[index]).length;
+    assert.equal(changed, 1);
+    seen.add(start.join(','));
+    seen.add(end.join(','));
+    for (const point of points) {
+      assert.ok(Number.isFinite(point.x + point.y + point.z));
+      const lab = worldToLab(point.x, point.y, point.z);
+      const rgb = oklabToLinearSrgb(lab.L, lab.a, lab.b);
+      assert.ok(Math.abs(rgb.r - point.r) < 2e-4);
+      assert.ok(Math.abs(rgb.g - point.g) < 2e-4);
+      assert.ok(Math.abs(rgb.b - point.b) < 2e-4);
+    }
+  }
+
+  for (const corner of corners) assert.equal(seen.has(corner.join(',')), true);
+});
+
+test('edge tubes follow the gamut edges at a fixed radius', () => {
+  const radius = 0.02;
+  const segments = 4;
+  const tube = buildEdgeTubeArrays(segments, radius);
+  const radial = 3;
+  assert.equal(tube.positions.length, 12 * (segments + 1) * radial * 3);
+  assert.equal(tube.indices.length, 12 * segments * radial * 6);
+
+  const center = buildGamutEdgePolylines(segments)[0][0];
+  for (let corner = 0; corner < radial; corner++) {
+    const x = tube.positions[corner * 3] - center.x;
+    const y = tube.positions[corner * 3 + 1] - center.y;
+    const z = tube.positions[corner * 3 + 2] - center.z;
+    assert.ok(Math.abs(Math.hypot(x, y, z) - radius) < 1e-6);
+    assert.equal(tube.colors[corner * 3], center.r);
+  }
 });
 
 test('a mid lightness slice fills the gamut and stays inside it', () => {

@@ -72,6 +72,149 @@ export function buildShellArrays(segments) {
   return { positions, colors, indices };
 }
 
+// The ridges of the solid are the twelve edges of the RGB cube. Oklab bends
+// each one into a curve. These are the only edges drawn above a controller cut.
+const CUBE_CORNERS = [
+  [0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1],
+  [1, 1, 0], [1, 0, 1], [0, 1, 1], [1, 1, 1],
+];
+
+function cubeEdges() {
+  const edges = [];
+  for (let i = 0; i < CUBE_CORNERS.length; i++) {
+    for (let j = i + 1; j < CUBE_CORNERS.length; j++) {
+      const start = CUBE_CORNERS[i];
+      const end = CUBE_CORNERS[j];
+      const changed = (start[0] !== end[0]) + (start[1] !== end[1]) + (start[2] !== end[2]);
+      if (changed === 1) edges.push([start, end]);
+    }
+  }
+  return edges;
+}
+
+export function buildGamutEdgePolylines(segments) {
+  return cubeEdges().map(([start, end]) => {
+    const points = [];
+    for (let step = 0; step <= segments; step++) {
+      const t = step / segments;
+      const encoded = [
+        start[0] + (end[0] - start[0]) * t,
+        start[1] + (end[1] - start[1]) * t,
+        start[2] + (end[2] - start[2]) * t,
+      ];
+      const linear = encoded.map(srgbToLinear);
+      const lab = linearSrgbToOklab(linear[0], linear[1], linear[2]);
+      const world = labToWorld(lab.L, lab.a, lab.b);
+      points.push({
+        x: world.x,
+        y: world.y,
+        z: world.z,
+        r: linear[0],
+        g: linear[1],
+        b: linear[2],
+      });
+    }
+    return points;
+  });
+}
+
+function normalize(vector) {
+  const length = Math.hypot(vector.x, vector.y, vector.z) || 1;
+  return { x: vector.x / length, y: vector.y / length, z: vector.z / length };
+}
+
+function cross(a, b) {
+  return {
+    x: a.y * b.z - a.z * b.y,
+    y: a.z * b.x - a.x * b.z,
+    z: a.x * b.y - a.y * b.x,
+  };
+}
+
+function dot(a, b) {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+function initialNormal(direction) {
+  const axis = Math.abs(direction.x) <= Math.abs(direction.y) && Math.abs(direction.x) <= Math.abs(direction.z)
+    ? { x: 1, y: 0, z: 0 }
+    : Math.abs(direction.y) <= Math.abs(direction.z)
+      ? { x: 0, y: 1, z: 0 }
+      : { x: 0, y: 0, z: 1 };
+  return normalize(cross(direction, axis));
+}
+
+function transportNormal(previous, direction) {
+  const along = dot(previous, direction);
+  const projected = {
+    x: previous.x - along * direction.x,
+    y: previous.y - along * direction.y,
+    z: previous.z - along * direction.z,
+  };
+  if (Math.hypot(projected.x, projected.y, projected.z) < 1e-6) return initialNormal(direction);
+  return normalize(projected);
+}
+
+// A thin tube around each gamut edge, so the stroke stays visible in VR.
+// radius is in the same local units as the shell.
+export function buildEdgeTubeArrays(segments, radius) {
+  const radial = 3;
+  const polylines = buildGamutEdgePolylines(segments);
+  const rings = (segments + 1) * radial;
+  const positions = new Float32Array(polylines.length * rings * 3);
+  const colors = new Float32Array(polylines.length * rings * 3);
+  const indices = new Uint32Array(polylines.length * segments * radial * 6);
+
+  let vertexBase = 0;
+  let indexCursor = 0;
+
+  for (const points of polylines) {
+    let normal = null;
+    for (let step = 0; step < points.length; step++) {
+      const point = points[step];
+      const next = points[Math.min(step + 1, points.length - 1)];
+      const previous = points[Math.max(step - 1, 0)];
+      const direction = normalize(step < points.length - 1
+        ? { x: next.x - point.x, y: next.y - point.y, z: next.z - point.z }
+        : { x: point.x - previous.x, y: point.y - previous.y, z: point.z - previous.z });
+      normal = normal ? transportNormal(normal, direction) : initialNormal(direction);
+      const binormal = normalize(cross(direction, normal));
+      normal = normalize(cross(binormal, direction));
+
+      for (let corner = 0; corner < radial; corner++) {
+        const angle = (corner / radial) * Math.PI * 2;
+        const offset = vertexBase + step * radial + corner;
+        positions[offset * 3] = point.x + radius * (Math.cos(angle) * normal.x + Math.sin(angle) * binormal.x);
+        positions[offset * 3 + 1] = point.y + radius * (Math.cos(angle) * normal.y + Math.sin(angle) * binormal.y);
+        positions[offset * 3 + 2] = point.z + radius * (Math.cos(angle) * normal.z + Math.sin(angle) * binormal.z);
+        colors[offset * 3] = point.r;
+        colors[offset * 3 + 1] = point.g;
+        colors[offset * 3 + 2] = point.b;
+      }
+    }
+
+    for (let step = 0; step < segments; step++) {
+      for (let corner = 0; corner < radial; corner++) {
+        const nextCorner = (corner + 1) % radial;
+        const a = vertexBase + step * radial + corner;
+        const b = vertexBase + step * radial + nextCorner;
+        const c = vertexBase + (step + 1) * radial + corner;
+        const d = vertexBase + (step + 1) * radial + nextCorner;
+        indices[indexCursor++] = a;
+        indices[indexCursor++] = c;
+        indices[indexCursor++] = b;
+        indices[indexCursor++] = b;
+        indices[indexCursor++] = c;
+        indices[indexCursor++] = d;
+      }
+    }
+
+    vertexBase += rings;
+  }
+
+  return { positions, colors, indices };
+}
+
 // A filled lightness slice. Marching squares on an a–b grid, with edge
 // crossings pinned to the sRGB gamut boundary so the cap meets the shell.
 export function buildSliceArrays(L, divisions) {
