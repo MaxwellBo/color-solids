@@ -2,7 +2,6 @@ import { clamp01, inGamut, oklabToLinearSrgb } from './oklab.js';
 import { BASE_Y, SCALE, VIEW_TARGET, labToWorld } from './scale.js';
 import { buildShellArrays, buildSliceArrays } from './geometry.js';
 import {
-  GHOST_OPACITY,
   HAND_OFFSET_Z,
   HAND_ROTATION_X,
   HAND_SCALE,
@@ -11,6 +10,7 @@ import {
 
 const THREE = AFRAME.THREE;
 const SHELL_SEGMENTS = 96;
+const WIRE_SEGMENTS = 24;
 const SLICE_DIVISIONS = 160;
 const SLIDER_X = 1.18;
 const DEFAULT_LIGHTNESS = 0.68;
@@ -213,12 +213,10 @@ AFRAME.registerComponent('oklab-rgb-solid', {
 
     this.ghostMaterial = vertexColorMaterial({
       side: THREE.DoubleSide,
-      transparent: true,
-      opacity: GHOST_OPACITY,
-      depthWrite: false,
+      wireframe: true,
       clippingPlanes: [this.ghostClipPlane],
     });
-    this.ghostMesh = new THREE.Mesh(this.shellMesh.geometry, this.ghostMaterial);
+    this.ghostMesh = new THREE.Mesh(geometryFromArrays(buildShellArrays(WIRE_SEGMENTS)), this.ghostMaterial);
     this.ghostMesh.name = 'oklab-ghost';
     this.ghostMesh.renderOrder = 3;
     this.ghostMesh.visible = false;
@@ -601,7 +599,7 @@ AFRAME.registerComponent('oklab-rgb-solid', {
       'of that tip. Below the',
       'plane the solid stays.',
       'Above it, the solid',
-      'turns to glass.',
+      'becomes a wireframe.',
       '',
       'Release, and it closes.',
       '',

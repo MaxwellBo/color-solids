@@ -9,7 +9,6 @@ export const HAND_ROTATION_X = -Math.PI / 2;
 // The cutting disc is wide enough to cover a hand-sized solid when the other
 // controller's tip is anywhere on it, with a margin that reads as a plane.
 export const PLANE_RADIUS = 0.5;
-export const GHOST_OPACITY = 0.26;
 
 export function rotateX(point, angle) {
   const cos = Math.cos(angle);
