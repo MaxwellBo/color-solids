@@ -424,6 +424,7 @@ AFRAME.registerComponent('oklab-rgb-solid', {
   // whole, or when that point is outside the gamut.
   colorAtWorldPoint(worldPoint) {
     if (this.controllerCutY === null || !this.shellMesh) return null;
+    if (Math.abs(worldPoint.y - this.controllerCutY) > 0.03) return null;
     this.shellMesh.updateWorldMatrix(true, false);
     const local = this.shellMesh.worldToLocal(worldPoint.clone());
     return colorAtLocalPoint(local.x, local.y, local.z);
@@ -610,11 +611,15 @@ AFRAME.registerComponent('oklab-rgb-solid', {
       'left controller.',
       'Lightness follows its aim.',
       '',
-      'Hold A. A level plane',
-      'comes out of that tip.',
-      'Below it the solid stays.',
-      'Above it, only the edges',
-      'remain.',
+      'Hold A on the solid.',
+      'A level plane comes from',
+      'the tip. Below it stays',
+      'solid. Above it, only',
+      'the edges. Let go and',
+      'the cut stays.',
+      '',
+      'Tap A while pointing',
+      'away to close the cut.',
       '',
       'While that top is open,',
       'B picks the color under',
@@ -622,8 +627,6 @@ AFRAME.registerComponent('oklab-rgb-solid', {
       '',
       'Hold the trigger to paint',
       'with the picked color.',
-      '',
-      'Release A, and it closes.',
       '',
       'Left stick walks.',
       'Flick the right stick',
@@ -975,18 +978,18 @@ AFRAME.registerComponent('quest-brush', {
     this.probe.renderOrder = 4;
     this.el.sceneEl.object3D.add(this.probe);
 
+    this.aHeld = false;
     this.onADown = () => {
       if (!this.inHeadset()) return;
-      this.cutting = true;
-      this.syncCut();
+      this.aHeld = true;
+      if (this.pointingAtSolid()) {
+        this.cutting = true;
+        this.syncCut();
+      }
     };
     this.onAUp = () => {
-      if (!this.cutting) return;
-      this.cutting = false;
-      const solid = this.solid();
-      if (solid) solid.endControllerCut();
-      this.probe.visible = false;
-      this.syncLine();
+      if (!this.inHeadset() || !this.aHeld) return;
+      this.releaseA();
     };
     this.onBDown = () => {
       if (!this.inHeadset()) return;
@@ -1030,10 +1033,50 @@ AFRAME.registerComponent('quest-brush', {
   },
 
   tick() {
-    if (this.cutting) this.syncCut();
+    if (this.aHeld && this.pointingAtSolid()) {
+      this.cutting = true;
+      this.syncCut();
+    } else if (this.aHeld) {
+      this.cutting = false;
+    }
     if (this.painting) this.syncPaint();
     this.syncProbe();
     this.syncLine();
+  },
+
+  // Letting go of A while the controller is aimed at the solid leaves the
+  // cut where it is. A tap while aimed elsewhere closes it.
+  releaseA() {
+    this.aHeld = false;
+    this.cutting = false;
+    if (!this.pointingAtSolid()) this.clearSlice();
+    this.syncLine();
+  },
+
+  clearSlice() {
+    const solid = this.solid();
+    if (solid) solid.endControllerCut();
+    this.probe.visible = false;
+  },
+
+  pointingAtSolid() {
+    const solid = this.solid();
+    if (!solid || !solid.shellMesh) return false;
+    this.readAim();
+    if (!this.aimRay) this.aimRay = new THREE.Raycaster();
+    this.aimRay.set(this.tip, this.forward, 0, 8);
+    const hits = this.aimRay.intersectObjects([solid.shellMesh, solid.ghostMesh], false);
+    if (hits.length > 0) return true;
+    if (solid.sectionMesh && solid.sectionMesh.visible) {
+      const capHits = this.aimRay.intersectObject(solid.sectionMesh, false);
+      for (const hit of capHits) {
+        if (solid.colorAtWorldPoint(hit.point)) return true;
+      }
+    }
+    solid.shellMesh.updateWorldMatrix(true, false);
+    if (!this.solidBox) this.solidBox = new THREE.Box3();
+    this.solidBox.setFromObject(solid.shellMesh);
+    return this.solidBox.containsPoint(this.tip);
   },
 
   syncCut() {
@@ -1136,16 +1179,23 @@ AFRAME.registerComponent('quest-brush', {
     }
   },
 
-  readTip(target) {
+  readAim() {
     const component = this.el.components.raycaster;
     if (component && component.raycaster) {
       component.updateOriginDirection();
-      return target.copy(component.raycaster.ray.origin);
+      this.tip.copy(component.raycaster.ray.origin);
+      this.forward.copy(component.raycaster.ray.direction).normalize();
+      return;
     }
     this.el.object3D.updateWorldMatrix(true, false);
-    this.forward.set(0, 0, -1).transformDirection(this.el.object3D.matrixWorld);
-    this.el.object3D.getWorldPosition(target);
-    return target.addScaledVector(this.forward, 0.12);
+    this.forward.set(0, 0, -1).transformDirection(this.el.object3D.matrixWorld).normalize();
+    this.el.object3D.getWorldPosition(this.tip);
+    this.tip.addScaledVector(this.forward, 0.12);
+  },
+
+  readTip(target) {
+    this.readAim();
+    return target.copy(this.tip);
   },
 
   remove() {
