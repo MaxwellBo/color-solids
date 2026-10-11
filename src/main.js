@@ -8,6 +8,7 @@ import {
   HAND_SCALE,
   PLANE_RADIUS,
 } from './hand.js';
+import { installScenePassthrough } from './passthrough.js';
 
 const THREE = AFRAME.THREE;
 const SHELL_SEGMENTS = 96;
@@ -25,6 +26,10 @@ const ORBIT = {
 
 function clamp(value, minimum, maximum) {
   return Math.min(maximum, Math.max(minimum, value));
+}
+
+function sceneInHeadset(scene) {
+  return scene.is('vr-mode') || scene.is('ar-mode');
 }
 
 function geometryFromArrays(arrays) {
@@ -610,6 +615,7 @@ AFRAME.registerComponent('oklab-rgb-solid', {
       'The solid sits on the',
       'left controller.',
       'Lightness follows its aim.',
+      'Your room shows through.',
       '',
       'Hold A on the solid.',
       'A level plane comes from',
@@ -759,7 +765,7 @@ AFRAME.registerComponent('orbit-view', {
     this.radius = ORBIT.radius;
     this.dragging = false;
     this.onPointerDown = (event) => {
-      if (event.button !== 0 || this.el.sceneEl.is('vr-mode')) return;
+      if (event.button !== 0 || sceneInHeadset(this.el.sceneEl)) return;
       this.dragging = true;
       this.lastX = event.clientX;
       this.lastY = event.clientY;
@@ -780,7 +786,7 @@ AFRAME.registerComponent('orbit-view', {
       if (this.el.sceneEl.canvas) this.el.sceneEl.canvas.style.cursor = 'grab';
     };
     this.onWheel = (event) => {
-      if (this.el.sceneEl.is('vr-mode')) return;
+      if (sceneInHeadset(this.el.sceneEl)) return;
       event.preventDefault();
       this.radius = clamp(this.radius * Math.exp(event.deltaY * 0.001), 1.2, 8);
     };
@@ -834,7 +840,7 @@ AFRAME.registerComponent('orbit-view', {
   },
 
   tick() {
-    if (this.el.sceneEl.is('vr-mode')) return;
+    if (sceneInHeadset(this.el.sceneEl)) return;
     const cameraEl = document.getElementById('camera');
     const rig = cameraEl.object3D;
     const camera = cameraEl.getObject3D('camera');
@@ -882,7 +888,7 @@ AFRAME.registerComponent('locomotion', {
     });
   },
   tick(_time, deltaMs) {
-    if (!this.el.sceneEl.is('vr-mode')) return;
+    if (!sceneInHeadset(this.el.sceneEl)) return;
     if (Math.abs(this.axisX) < 0.18 && Math.abs(this.axisY) < 0.18) return;
     const camera = this.el.sceneEl.camera;
     camera.getWorldDirection(this.forward);
@@ -906,7 +912,7 @@ AFRAME.registerComponent('turn-stick', {
   init() {
     this.turned = false;
     this.el.addEventListener('thumbstickmoved', (event) => {
-      if (!this.el.sceneEl.is('vr-mode')) return;
+      if (!sceneInHeadset(this.el.sceneEl)) return;
       const x = event.detail.x;
       const y = event.detail.y;
       if (Math.abs(x) > Math.abs(y) && Math.abs(x) > 0.75) {
@@ -935,7 +941,7 @@ AFRAME.registerComponent('hold-solid', {
     this.el.sceneEl.addEventListener('exit-vr', this.onExitVR);
   },
   tick() {
-    if (!this.el.sceneEl.is('vr-mode')) return;
+    if (!sceneInHeadset(this.el.sceneEl)) return;
     const data = this.el.getAttribute('raycaster');
     if (data && data.showLine) this.el.setAttribute('raycaster', 'showLine', false);
   },
@@ -1024,7 +1030,7 @@ AFRAME.registerComponent('quest-brush', {
   },
 
   inHeadset() {
-    return this.el.sceneEl.is('vr-mode');
+    return sceneInHeadset(this.el.sceneEl);
   },
 
   solid() {
@@ -1262,6 +1268,17 @@ function bindHud() {
     swatch.style.background = hex;
     brushValue.textContent = hex;
   });
+}
+
+const sceneClass = customElements.get('a-scene');
+if (sceneClass) installScenePassthrough(sceneClass.prototype);
+
+// The scene stays in a template until passthrough is installed on the
+// prototype. A-Frame offers the headset session as soon as the element connects.
+const exhibit = document.getElementById('exhibit');
+if (exhibit && exhibit.content) {
+  const hud = document.getElementById('hud');
+  (hud ? hud.parentNode : document.body).insertBefore(exhibit.content, hud);
 }
 
 bindHud();
