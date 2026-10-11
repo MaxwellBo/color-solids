@@ -4,6 +4,7 @@ import {
   encodedSrgbToOklab,
   inGamut,
   linearSrgbToOklab,
+  linearToSrgb,
   oklabToLinearSrgb,
   srgbToLinear,
 } from './oklab.js';
@@ -25,6 +26,13 @@ test('sRGB primaries land on the known Oklab coordinates', () => {
     assert.ok(Math.abs(lab.L - sample.lab[0]) < 1e-5, name);
     assert.ok(Math.abs(lab.a - sample.lab[1]) < 1e-5, name);
     assert.ok(Math.abs(lab.b - sample.lab[2]) < 1e-5, name);
+  }
+});
+
+test('the sRGB transfer inverts', () => {
+  for (const value of [0, 0.02, 0.2, 0.5, 0.8, 1]) {
+    assert.ok(Math.abs(srgbToLinear(linearToSrgb(value)) - value) < 1e-6);
+    assert.ok(Math.abs(linearToSrgb(srgbToLinear(value)) - value) < 1e-6);
   }
 });
 

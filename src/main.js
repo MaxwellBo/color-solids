@@ -1,6 +1,7 @@
-import { clamp01, inGamut, oklabToLinearSrgb } from './oklab.js';
+import { clamp01, inGamut, linearToSrgb, oklabToLinearSrgb } from './oklab.js';
 import { BASE_Y, SCALE, VIEW_TARGET, labToWorld } from './scale.js';
 import { buildEdgeTubeArrays, buildShellArrays, buildSliceArrays } from './geometry.js';
+import { buildStrokeArrays, colorAtLocalPoint, STROKE_RADIUS } from './brush.js';
 import {
   HAND_OFFSET_Z,
   HAND_ROTATION_X,
@@ -419,6 +420,15 @@ AFRAME.registerComponent('oklab-rgb-solid', {
     });
   },
 
+  // Color of the exposed cut at a world position. Null when the solid is
+  // whole, or when that point is outside the gamut.
+  colorAtWorldPoint(worldPoint) {
+    if (this.controllerCutY === null || !this.shellMesh) return null;
+    this.shellMesh.updateWorldMatrix(true, false);
+    const local = this.shellMesh.worldToLocal(worldPoint.clone());
+    return colorAtLocalPoint(local.x, local.y, local.z);
+  },
+
   updateClipPlane() {
     if (!this.shellMesh) return;
     const cutting = this.controllerCutY !== null;
@@ -589,8 +599,8 @@ AFRAME.registerComponent('oklab-rgb-solid', {
 
     const backing = document.createElement('a-plane');
     backing.setAttribute('width', 1.12);
-    backing.setAttribute('height', 1.28);
-    backing.setAttribute('position', { x: 0, y: -0.5, z: -0.02 });
+    backing.setAttribute('height', 1.55);
+    backing.setAttribute('position', { x: 0, y: -0.64, z: -0.02 });
     backing.setAttribute('material', { color: '#141820', shader: 'flat', opacity: 0.88 });
     this.panel.appendChild(backing);
 
@@ -600,14 +610,20 @@ AFRAME.registerComponent('oklab-rgb-solid', {
       'left controller.',
       'Lightness follows its aim.',
       '',
-      'Hold the right trigger.',
-      'A level plane comes out',
-      'of that tip. Below the',
-      'plane the solid stays.',
-      'Above it, only the',
-      'edges remain.',
+      'Hold A. A level plane',
+      'comes out of that tip.',
+      'Below it the solid stays.',
+      'Above it, only the edges',
+      'remain.',
       '',
-      'Release, and it closes.',
+      'While that top is open,',
+      'B picks the color under',
+      'the tip.',
+      '',
+      'Hold the trigger to paint',
+      'with the picked color.',
+      '',
+      'Release A, and it closes.',
       '',
       'Left stick walks.',
       'Flick the right stick',
@@ -926,43 +942,200 @@ AFRAME.registerComponent('hold-solid', {
   },
 });
 
-AFRAME.registerComponent('cut-plane', {
+const PAINT_STEP = 0.007;
+
+AFRAME.registerComponent('quest-brush', {
   init() {
     this.cutting = false;
+    this.painting = false;
     this.hidLine = false;
+    this.brush = null;
+    this.stroke = null;
     this.tip = new THREE.Vector3();
     this.forward = new THREE.Vector3();
-    this.onTriggerDown = () => {
+    this.paintRoot = new THREE.Group();
+    this.paintRoot.name = 'paint-strokes';
+    document.getElementById('world').object3D.add(this.paintRoot);
+
+    this.nib = new THREE.Mesh(
+      new THREE.SphereGeometry(0.012, 16, 12),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }),
+    );
+    this.nib.position.set(0, 0, -0.045);
+    this.nib.visible = false;
+    this.nib.name = 'brush-nib';
+    this.el.object3D.add(this.nib);
+
+    this.probe = new THREE.Mesh(
+      new THREE.SphereGeometry(0.016, 16, 12),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }),
+    );
+    this.probe.visible = false;
+    this.probe.name = 'cut-probe';
+    this.probe.renderOrder = 4;
+    this.el.sceneEl.object3D.add(this.probe);
+
+    this.onADown = () => {
+      if (!this.inHeadset()) return;
       this.cutting = true;
-      this.sync();
+      this.syncCut();
+    };
+    this.onAUp = () => {
+      if (!this.cutting) return;
+      this.cutting = false;
+      const solid = this.solid();
+      if (solid) solid.endControllerCut();
+      this.probe.visible = false;
+      this.syncLine();
+    };
+    this.onBDown = () => {
+      if (!this.inHeadset()) return;
+      this.pickFromTip();
+    };
+    this.onTriggerDown = () => {
+      if (!this.inHeadset() || !this.brush) return;
+      this.painting = true;
+      this.stroke = null;
+      this.syncPaint();
     };
     this.onTriggerUp = () => {
-      this.cutting = false;
-      const solid = document.getElementById('solid').components['oklab-rgb-solid'];
-      if (solid) solid.endControllerCut();
-      if (this.hidLine) {
-        this.el.setAttribute('raycaster', 'showLine', true);
-        this.hidLine = false;
-      }
+      this.painting = false;
+      this.stroke = null;
+      this.syncLine();
     };
+    this.disarmCursor = () => {
+      this.el.setAttribute('cursor', {
+        fuse: false,
+        downEvents: ['quest-brush-unused'],
+        upEvents: ['quest-brush-unused'],
+      });
+    };
+
+    this.el.addEventListener('abuttondown', this.onADown);
+    this.el.addEventListener('abuttonup', this.onAUp);
+    this.el.addEventListener('bbuttondown', this.onBDown);
     this.el.addEventListener('triggerdown', this.onTriggerDown);
     this.el.addEventListener('triggerup', this.onTriggerUp);
+    this.el.addEventListener('controllerconnected', this.disarmCursor);
+    this.el.addEventListener('controllermodelready', this.disarmCursor);
   },
+
+  inHeadset() {
+    return this.el.sceneEl.is('vr-mode');
+  },
+
+  solid() {
+    const solid = document.getElementById('solid');
+    return solid && solid.components['oklab-rgb-solid'];
+  },
+
   tick() {
-    if (!this.cutting) return;
-    const data = this.el.getAttribute('raycaster');
-    if (data && data.showLine) {
-      this.el.setAttribute('raycaster', 'showLine', false);
-      this.hidLine = true;
-    }
-    this.sync();
+    if (this.cutting) this.syncCut();
+    if (this.painting) this.syncPaint();
+    this.syncProbe();
+    this.syncLine();
   },
-  sync() {
-    const solid = document.getElementById('solid').components['oklab-rgb-solid'];
+
+  syncCut() {
+    const solid = this.solid();
     if (!solid) return;
     this.readTip(this.tip);
     solid.setControllerCut(this.tip.y, this.tip);
   },
+
+  syncProbe() {
+    const solid = this.solid();
+    if (!solid || solid.controllerCutY === null) {
+      this.probe.visible = false;
+      return;
+    }
+    this.readTip(this.tip);
+    const rgb = solid.colorAtWorldPoint(this.tip);
+    this.probe.visible = Boolean(rgb);
+    if (!rgb) return;
+    this.probe.position.copy(this.tip);
+    this.probe.position.y += 0.01;
+    this.probe.material.color.copy(linearColor(rgb));
+  },
+
+  pickFromTip() {
+    const solid = this.solid();
+    if (!solid || solid.controllerCutY === null) return null;
+    this.readTip(this.tip);
+    const rgb = solid.colorAtWorldPoint(this.tip);
+    if (!rgb) return null;
+    this.setBrushColor(rgb);
+    return rgb;
+  },
+
+  setBrushColor(rgb) {
+    this.brush = { r: rgb.r, g: rgb.g, b: rgb.b };
+    this.nib.material.color.copy(linearColor(rgb));
+    this.nib.visible = true;
+    this.el.sceneEl.emit('brush-changed', this.brush);
+  },
+
+  syncPaint() {
+    if (!this.brush) return;
+    this.readTip(this.tip);
+    const world = document.getElementById('world').object3D;
+    world.updateWorldMatrix(true, false);
+    const local = world.worldToLocal(this.tip.clone());
+    if (!this.stroke) this.startStroke(local);
+    else this.extendStroke(local);
+  },
+
+  startStroke(localPoint) {
+    const material = new THREE.MeshBasicMaterial({
+      color: linearColor(this.brush),
+      toneMapped: false,
+      side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(STROKE_RADIUS, 14, 10), material);
+    mesh.position.copy(localPoint);
+    mesh.name = 'paint-stroke';
+    this.paintRoot.add(mesh);
+    this.stroke = { points: [localPoint.clone()], mesh };
+  },
+
+  extendStroke(localPoint) {
+    const points = this.stroke.points;
+    if (points[points.length - 1].distanceTo(localPoint) < PAINT_STEP) return;
+    points.push(localPoint.clone());
+    const arrays = buildStrokeArrays(points, STROKE_RADIUS);
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(arrays.positions, 3));
+    geometry.setIndex(new THREE.BufferAttribute(arrays.indices, 1));
+    geometry.computeBoundingSphere();
+    this.stroke.mesh.geometry.dispose();
+    this.stroke.mesh.geometry = geometry;
+    this.stroke.mesh.position.set(0, 0, 0);
+  },
+
+  // Draw a finished stroke through world-space points. Used to check the
+  // brush without a headset.
+  strokeThrough(worldPoints) {
+    if (!this.brush || worldPoints.length === 0) return;
+    const world = document.getElementById('world').object3D;
+    world.updateWorldMatrix(true, false);
+    const local = worldPoints.map((point) => world.worldToLocal(point.clone()));
+    this.startStroke(local[0]);
+    for (const point of local.slice(1)) this.extendStroke(point);
+    this.stroke = null;
+  },
+
+  syncLine() {
+    const hide = this.cutting || this.painting;
+    const data = this.el.getAttribute('raycaster');
+    if (hide && data && data.showLine) {
+      this.el.setAttribute('raycaster', 'showLine', false);
+      this.hidLine = true;
+    } else if (!hide && this.hidLine) {
+      this.el.setAttribute('raycaster', 'showLine', true);
+      this.hidLine = false;
+    }
+  },
+
   readTip(target) {
     const component = this.el.components.raycaster;
     if (component && component.raycaster) {
@@ -974,9 +1147,17 @@ AFRAME.registerComponent('cut-plane', {
     this.el.object3D.getWorldPosition(target);
     return target.addScaledVector(this.forward, 0.12);
   },
+
   remove() {
+    this.el.removeEventListener('abuttondown', this.onADown);
+    this.el.removeEventListener('abuttonup', this.onAUp);
+    this.el.removeEventListener('bbuttondown', this.onBDown);
     this.el.removeEventListener('triggerdown', this.onTriggerDown);
     this.el.removeEventListener('triggerup', this.onTriggerUp);
+    this.el.removeEventListener('controllerconnected', this.disarmCursor);
+    this.el.removeEventListener('controllermodelready', this.disarmCursor);
+    this.probe.removeFromParent();
+    this.paintRoot.removeFromParent();
   },
 });
 
@@ -1020,6 +1201,16 @@ function bindHud() {
     status.textContent = cutaway
       ? 'The top of the solid is cut away at this lightness.'
       : 'The complete sRGB surface, with no cut.';
+  });
+
+  const swatch = document.getElementById('brush-swatch');
+  const brushValue = document.getElementById('brush-value');
+  scene.addEventListener('brush-changed', (event) => {
+    const { r, g, b } = event.detail;
+    const channel = (value) => Math.round(clamp01(linearToSrgb(value)) * 255).toString(16).padStart(2, '0');
+    const hex = `#${channel(r)}${channel(g)}${channel(b)}`;
+    swatch.style.background = hex;
+    brushValue.textContent = hex;
   });
 }
 

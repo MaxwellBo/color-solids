@@ -14,6 +14,11 @@ export function srgbToLinear(channel) {
   return ((channel + 0.055) / 1.055) ** 2.4;
 }
 
+export function linearToSrgb(channel) {
+  if (channel <= 0.0031308) return 12.92 * channel;
+  return 1.055 * channel ** (1 / 2.4) - 0.055;
+}
+
 export function linearSrgbToOklab(r, g, b) {
   const l = 0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b;
   const m = 0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b;
