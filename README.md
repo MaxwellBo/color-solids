@@ -14,6 +14,12 @@ npm start
 
 Open http://localhost:8080. Drag to orbit and scroll to zoom. The VR button enters a WebXR session when a headset is available.
 
+## Deploy
+
+`npm run build` writes a static copy of the exhibit to `_site`, including the A-Frame build the page loads from `node_modules`. Pushes to `master` publish that folder with GitHub Actions.
+
+In the repository settings, set **Pages → Build and deployment → Source** to **GitHub Actions** once. The site is then at https://maxwellbo.github.io/color-solids/.
+
 ## Controls
 
 - Drag orbits the desktop camera. Scroll zooms. `R` resets the view.
