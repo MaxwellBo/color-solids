@@ -6,6 +6,7 @@
   "description": "The sRGB color solid rendered in Oklab space with A-Frame VR.",
   "scripts": {
     "start": "serve -l 8080 .",
+    "build": "node scripts/build-pages.js",
     "test": "node --test src/*.test.js"
   },
   "dependencies": {
