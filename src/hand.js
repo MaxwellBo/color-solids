@@ -37,8 +37,6 @@ export function heldPoint(local) {
 
 // Three.js clips a fragment when normal·point + constant is negative.
 // keepBelow drops everything above planeY. keepAbove drops everything below.
-// Both planes are horizontal in world space: the cut stays level when the
-// solid tilts with the controller.
 export function worldCutPlanes(planeY) {
   return {
     keepBelow: { normalY: -1, constant: planeY },
@@ -48,4 +46,69 @@ export function worldCutPlanes(planeY) {
 
 export function planeClips(plane, y) {
   return plane.normalY * y + plane.constant < 0;
+}
+
+function columnScale(elements) {
+  return Math.hypot(elements[0], elements[1], elements[2]) || 1;
+}
+
+function normalize(vector) {
+  const length = Math.hypot(vector.x, vector.y, vector.z) || 1;
+  return { x: vector.x / length, y: vector.y / length, z: vector.z / length };
+}
+
+// The controller cut lives in the solid's local frame: a point on the blade
+// and a normal pointing to the side that becomes edges. elements is the
+// solid's column-major world matrix, with uniform scale.
+export function localCutFromWorld(worldPoint, worldNormal, elements) {
+  const scale = columnScale(elements);
+  const r0x = elements[0] / scale;
+  const r0y = elements[1] / scale;
+  const r0z = elements[2] / scale;
+  const r1x = elements[4] / scale;
+  const r1y = elements[5] / scale;
+  const r1z = elements[6] / scale;
+  const r2x = elements[8] / scale;
+  const r2y = elements[9] / scale;
+  const r2z = elements[10] / scale;
+  const dx = worldPoint.x - elements[12];
+  const dy = worldPoint.y - elements[13];
+  const dz = worldPoint.z - elements[14];
+  return {
+    point: {
+      x: (r0x * dx + r0y * dy + r0z * dz) / scale,
+      y: (r1x * dx + r1y * dy + r1z * dz) / scale,
+      z: (r2x * dx + r2y * dy + r2z * dz) / scale,
+    },
+    normal: normalize({
+      x: r0x * worldNormal.x + r0y * worldNormal.y + r0z * worldNormal.z,
+      y: r1x * worldNormal.x + r1y * worldNormal.y + r1z * worldNormal.z,
+      z: r2x * worldNormal.x + r2y * worldNormal.y + r2z * worldNormal.z,
+    }),
+  };
+}
+
+export function worldCutFromLocal(localPoint, localNormal, elements) {
+  const scale = columnScale(elements);
+  const r0x = elements[0] / scale;
+  const r0y = elements[1] / scale;
+  const r0z = elements[2] / scale;
+  const r1x = elements[4] / scale;
+  const r1y = elements[5] / scale;
+  const r1z = elements[6] / scale;
+  const r2x = elements[8] / scale;
+  const r2y = elements[9] / scale;
+  const r2z = elements[10] / scale;
+  return {
+    point: {
+      x: elements[12] + scale * (r0x * localPoint.x + r1x * localPoint.y + r2x * localPoint.z),
+      y: elements[13] + scale * (r0y * localPoint.x + r1y * localPoint.y + r2y * localPoint.z),
+      z: elements[14] + scale * (r0z * localPoint.x + r1z * localPoint.y + r2z * localPoint.z),
+    },
+    normal: normalize({
+      x: r0x * localNormal.x + r1x * localNormal.y + r2x * localNormal.z,
+      y: r0y * localNormal.x + r1y * localNormal.y + r2y * localNormal.z,
+      z: r0z * localNormal.x + r1z * localNormal.y + r2z * localNormal.z,
+    }),
+  };
 }

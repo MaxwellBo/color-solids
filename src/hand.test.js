@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import * as THREE from 'three';
 import {
   HAND_OFFSET_Z,
   HAND_SCALE,
   heldPoint,
+  localCutFromWorld,
   planeClips,
+  worldCutFromLocal,
   worldCutPlanes,
 } from './hand.js';
 
@@ -24,6 +27,35 @@ test('the black tip sits just past the controller tip, and white is further alon
   assert.ok(black.z < HAND_OFFSET_Z);
   assert.ok(black.z < -0.08 && black.z > -0.2);
   assert.ok(white.z < black.z);
+});
+
+test('a cut stored on the solid follows its translation and roll', () => {
+  const solid = new THREE.Object3D();
+  solid.position.set(0.2, 1.4, -0.5);
+  solid.rotation.set(0.4, -0.2, 0.6);
+  solid.scale.setScalar(0.2);
+  solid.updateMatrixWorld();
+  const tip = { x: 0.3, y: 1.5, z: -0.4 };
+  const up = { x: 0.1, y: 0.9, z: 0.2 };
+  const local = localCutFromWorld(tip, up, solid.matrixWorld.elements);
+  const world = worldCutFromLocal(local.point, local.normal, solid.matrixWorld.elements);
+  const expected = new THREE.Vector3(tip.x, tip.y, tip.z);
+  const expectedNormal = new THREE.Vector3(up.x, up.y, up.z).normalize();
+  assert.ok(new THREE.Vector3(world.point.x, world.point.y, world.point.z).distanceTo(expected) < 1e-5);
+  assert.ok(Math.abs(new THREE.Vector3(world.normal.x, world.normal.y, world.normal.z).dot(expectedNormal) - 1) < 1e-5);
+
+  solid.position.x += 0.35;
+  solid.rotation.z += 0.8;
+  solid.updateMatrixWorld();
+  const moved = worldCutFromLocal(local.point, local.normal, solid.matrixWorld.elements);
+  const movedPoint = new THREE.Vector3(local.point.x, local.point.y, local.point.z).applyMatrix4(solid.matrixWorld);
+  const movedNormal = new THREE.Vector3(local.normal.x, local.normal.y, local.normal.z)
+    .transformDirection(solid.matrixWorld)
+    .normalize();
+  assert.ok(new THREE.Vector3(moved.point.x, moved.point.y, moved.point.z).distanceTo(movedPoint) < 1e-5);
+  assert.ok(Math.abs(new THREE.Vector3(moved.normal.x, moved.normal.y, moved.normal.z).dot(movedNormal) - 1) < 1e-5);
+  assert.ok(new THREE.Vector3(moved.point.x, moved.point.y, moved.point.z).distanceTo(expected) > 0.2);
+  assert.ok(Math.abs(new THREE.Vector3(moved.normal.x, moved.normal.y, moved.normal.z).dot(expectedNormal)) < 0.99);
 });
 
 test('a horizontal cut keeps the solid below the plane and clips the part above', () => {
