@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
-import { heldPoint } from './hand.js';
+import { bladeNormal, heldPoint } from './hand.js';
 import { labToWorld, VIEW_TARGET } from './scale.js';
 import {
   DESKTOP_BUTTONS,
   LEFT_HAND_POSE,
+  POINT_DIRECTION,
   RIGHT_HAND_POSE,
   rayPlanePoint,
 } from './desktop-hands.js';
@@ -27,11 +28,19 @@ test('the desktop left hand holds the solid up in view', () => {
   assert.ok(center.distanceTo(target) < 0.02);
 });
 
-test('the desktop right hand aims at the held solid', () => {
+test('the desktop right hand aims at the held solid along the pointing ray', () => {
   const hand = place(RIGHT_HAND_POSE);
-  const aim = new THREE.Vector3(0, 0, -1).applyQuaternion(hand.quaternion).normalize();
+  // A-Frame entities rotate in YXZ order.
+  hand.rotation.order = 'YXZ';
+  hand.rotation.set(RIGHT_HAND_POSE.rotation.x, RIGHT_HAND_POSE.rotation.y, RIGHT_HAND_POSE.rotation.z);
+  const aim = new THREE.Vector3(POINT_DIRECTION.x, POINT_DIRECTION.y, POINT_DIRECTION.z)
+    .applyQuaternion(hand.quaternion)
+    .normalize();
   const toward = new THREE.Vector3(VIEW_TARGET.x, VIEW_TARGET.y, VIEW_TARGET.z).sub(hand.position).normalize();
   assert.ok(aim.dot(toward) > 0.98);
+  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(hand.quaternion);
+  const blade = bladeNormal(up, aim);
+  assert.ok(blade.y > 0.97);
 });
 
 test('a drag ray meets the camera-facing plane', () => {

@@ -3,6 +3,7 @@ import test from 'node:test';
 import * as THREE from 'three';
 import {
   activeSliceMode,
+  bladeNormal,
   HAND_OFFSET_Z,
   HAND_SCALE,
   heldPoint,
@@ -91,6 +92,27 @@ test('a level cut stays on a lightness plane of the solid', () => {
   };
   const raisedLocal = localCutFromWorld(raised, normal, solid.matrixWorld.elements);
   assert.ok(raisedLocal.point.y > local.point.y + 0.4);
+});
+
+test('the spatula blade contains the pointing ray and stays level when that ray is level', () => {
+  const straight = bladeNormal({ x: 0, y: 1, z: 0 }, { x: 0, y: 0, z: -1 });
+  assert.ok(Math.abs(straight.x) < 1e-8);
+  assert.ok(Math.abs(straight.y - 1) < 1e-8);
+  assert.ok(Math.abs(straight.z) < 1e-8);
+
+  const point = new THREE.Vector3(0, -0.9, -1).normalize();
+  const local = bladeNormal({ x: 0, y: 1, z: 0 }, point);
+  const localNormal = new THREE.Vector3(local.x, local.y, local.z);
+  assert.ok(Math.abs(localNormal.dot(point)) < 1e-6);
+  assert.ok(local.y > 0);
+
+  const hand = new THREE.Object3D();
+  hand.quaternion.setFromUnitVectors(point, new THREE.Vector3(0, 0, -1));
+  hand.updateMatrixWorld(true);
+  const world = localNormal.clone().transformDirection(hand.matrixWorld);
+  assert.ok(Math.abs(world.x) < 1e-5);
+  assert.ok(Math.abs(world.y - 1) < 1e-5);
+  assert.ok(Math.abs(world.z) < 1e-5);
 });
 
 test('B holds a level slice and a tap away from the solid closes it', () => {
