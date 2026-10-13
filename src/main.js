@@ -1,7 +1,7 @@
 import { clamp01, linearToSrgb, oklabToLinearSrgb } from './oklab.js';
 import { BASE_Y, SCALE, VIEW_TARGET, labToWorld } from './scale.js';
 import { buildEdgeTubeArrays, buildShellArrays, buildSliceArrays } from './geometry.js';
-import { buildStrokeArrays, colorAtLocalPoint, STROKE_RADIUS } from './brush.js';
+import { buildStrokeArrays, colorAtLocalPoint, selectPick, STROKE_RADIUS } from './brush.js';
 import {
   HAND_OFFSET_Z,
   HAND_ROTATION_X,
@@ -11,6 +11,7 @@ import {
   worldCutFromLocal,
 } from './hand.js';
 import { installScenePassthrough } from './passthrough.js';
+import { EXHIBIT_VERSION } from './version.js';
 
 const THREE = AFRAME.THREE;
 const SHELL_SEGMENTS = 96;
@@ -605,13 +606,15 @@ AFRAME.registerComponent('oklab-rgb-solid', {
 
     const backing = document.createElement('a-plane');
     backing.setAttribute('width', 1.12);
-    backing.setAttribute('height', 1.78);
-    backing.setAttribute('position', { x: 0, y: -0.76, z: -0.02 });
+    backing.setAttribute('height', 1.96);
+    backing.setAttribute('position', { x: 0, y: -0.86, z: -0.02 });
     backing.setAttribute('material', { color: '#141820', shader: 'flat', opacity: 0.88 });
     this.panel.appendChild(backing);
 
     const body = document.createElement('a-text');
     body.setAttribute('value', [
+      `v${EXHIBIT_VERSION}`,
+      '',
       'The solid sits on the',
       'left controller.',
       'Lightness follows its aim.',
@@ -628,10 +631,11 @@ AFRAME.registerComponent('oklab-rgb-solid', {
       'Tap A while pointing',
       'away to close the cut.',
       '',
-      'Hold B and move through',
-      'the solid to pick. A',
-      'white ring marks the',
-      'color.',
+      'Hold the back trigger.',
+      'Its ray picks the solid.',
+      'A ring shows the color',
+      'where it meets, or',
+      'inside the volume.',
       '',
       'Hold the trigger to paint',
       'with the picked color.',
@@ -897,7 +901,7 @@ AFRAME.registerComponent('quest-brush', {
     this.pickMarker = new THREE.Group();
     this.pickMarker.name = 'pick-marker';
     this.pickMarker.visible = false;
-    this.pickMarker.renderOrder = 6;
+    this.pickMarker.renderOrder = 20;
     const markerMaterial = {
       toneMapped: false,
       depthTest: false,
@@ -912,14 +916,14 @@ AFRAME.registerComponent('quest-brush', {
       new THREE.RingGeometry(0.028, 0.036, 48),
       new THREE.MeshBasicMaterial({ ...markerMaterial, color: 0xffffff }),
     );
-    this.pickFill.renderOrder = 6;
-    this.pickRing.renderOrder = 7;
+    this.pickFill.renderOrder = 20;
+    this.pickRing.renderOrder = 21;
     this.pickMarker.add(this.pickFill, this.pickRing);
     this.el.sceneEl.object3D.add(this.pickMarker);
     this.cameraPosition = new THREE.Vector3();
 
     this.aHeld = false;
-    this.bHeld = false;
+    this.gripHeld = false;
     this.onADown = () => {
       if (!this.inHeadset()) return;
       this.aHeld = true;
@@ -932,13 +936,13 @@ AFRAME.registerComponent('quest-brush', {
       if (!this.inHeadset() || !this.aHeld) return;
       this.releaseA();
     };
-    this.onBDown = () => {
+    this.onGripDown = () => {
       if (!this.inHeadset()) return;
-      this.bHeld = true;
+      this.gripHeld = true;
       this.syncPick();
     };
-    this.onBUp = () => {
-      this.bHeld = false;
+    this.onGripUp = () => {
+      this.gripHeld = false;
       this.pickMarker.visible = false;
     };
     this.onTriggerDown = () => {
@@ -962,8 +966,8 @@ AFRAME.registerComponent('quest-brush', {
 
     this.el.addEventListener('abuttondown', this.onADown);
     this.el.addEventListener('abuttonup', this.onAUp);
-    this.el.addEventListener('bbuttondown', this.onBDown);
-    this.el.addEventListener('bbuttonup', this.onBUp);
+    this.el.addEventListener('gripdown', this.onGripDown);
+    this.el.addEventListener('gripup', this.onGripUp);
     this.el.addEventListener('triggerdown', this.onTriggerDown);
     this.el.addEventListener('triggerup', this.onTriggerUp);
     this.el.addEventListener('controllerconnected', this.disarmCursor);
@@ -986,7 +990,7 @@ AFRAME.registerComponent('quest-brush', {
     } else if (this.aHeld) {
       this.cutting = false;
     }
-    if (this.bHeld) this.syncPick();
+    if (this.gripHeld) this.syncPick();
     if (this.painting) this.syncPaint();
     this.syncLine();
   },
@@ -1033,34 +1037,65 @@ AFRAME.registerComponent('quest-brush', {
     solid.setControllerCut(this.tip, this.up);
   },
 
-  // Hold B and move the tip through the volume. The white ring is the
-  // reticle; the disc inside it is the color under that point.
+  // The back trigger casts this ray. Inside the solid, the closest color
+  // is the ray's start. From outside, it is the first point the ray meets.
   syncPick() {
     const solid = this.solid();
-    if (!solid) {
+    if (!solid || !solid.shellMesh) {
       this.pickMarker.visible = false;
       return null;
     }
     this.readAim();
-    const rgb = solid.colorAtWorldPoint(this.tip);
-    if (!rgb) {
+    const sample = this.sampleRay(solid);
+    if (!sample) {
       this.pickMarker.visible = false;
       return null;
     }
+    this.showPick(sample.point, sample.rgb);
+    return sample.rgb;
+  },
+
+  sampleRay(solid) {
+    const here = solid.colorAtWorldPoint(this.tip);
+    if (!this.aimRay) this.aimRay = new THREE.Raycaster();
+    this.aimRay.set(this.tip, this.forward, 0, 8);
+    const targets = [solid.shellMesh];
+    if (solid.sectionMesh && solid.sectionMesh.visible) targets.push(solid.sectionMesh);
+    const hits = this.aimRay.intersectObjects(targets, false).map((hit) => {
+      const rgb = solid.colorAtWorldPoint(hit.point);
+      return {
+        point: hit.point,
+        color: Boolean(rgb),
+        onSolidSide: this.hitOnSolidSide(solid, hit),
+        rgb,
+      };
+    });
+    const choice = selectPick(Boolean(here), hits);
+    if (!choice) return null;
+    if (choice.source === 'inside') return { point: this.tip.clone(), rgb: here };
+    const hit = hits[choice.index];
+    return { point: hit.point.clone(), rgb: hit.rgb };
+  },
+
+  hitOnSolidSide(solid, hit) {
+    if (!solid.cutActive || hit.object === solid.sectionMesh) return true;
+    return solid.clipPlane.distanceToPoint(hit.point) >= -0.004;
+  },
+
+  showPick(point, rgb) {
     this.setBrushColor(rgb);
     this.pickFill.material.color.copy(linearColor(rgb));
-    this.pickMarker.position.copy(this.tip);
+    this.pickMarker.position.copy(point);
     const camera = this.el.sceneEl.camera;
     if (camera) {
       camera.getWorldPosition(this.cameraPosition);
       this.pickMarker.lookAt(this.cameraPosition);
-      this.pickMarker.position.addScaledVector(
-        this.cameraPosition.sub(this.tip).normalize(),
-        0.012,
-      );
+      const towardCamera = this.cameraPosition.sub(point);
+      if (towardCamera.lengthSq() > 1e-8) {
+        this.pickMarker.position.addScaledVector(towardCamera.normalize(), 0.012);
+      }
     }
     this.pickMarker.visible = true;
-    return rgb;
   },
 
   pickFromTip() {
@@ -1157,8 +1192,8 @@ AFRAME.registerComponent('quest-brush', {
   remove() {
     this.el.removeEventListener('abuttondown', this.onADown);
     this.el.removeEventListener('abuttonup', this.onAUp);
-    this.el.removeEventListener('bbuttondown', this.onBDown);
-    this.el.removeEventListener('bbuttonup', this.onBUp);
+    this.el.removeEventListener('gripdown', this.onGripDown);
+    this.el.removeEventListener('gripup', this.onGripUp);
     this.el.removeEventListener('triggerdown', this.onTriggerDown);
     this.el.removeEventListener('triggerup', this.onTriggerUp);
     this.el.removeEventListener('controllerconnected', this.disarmCursor);

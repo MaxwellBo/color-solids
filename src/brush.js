@@ -16,6 +16,15 @@ export function colorAtLocalPoint(x, y, z) {
   return { r: clamp01(rgb.r), g: clamp01(rgb.g), b: clamp01(rgb.b) };
 }
 
+// The closest color on a ray. A start that is already inside the solid is
+// that point. Otherwise take the first hit that still carries a color.
+export function selectPick(originInside, hits) {
+  if (originInside) return { source: 'inside' };
+  const index = hits.findIndex((hit) => hit.color && hit.onSolidSide);
+  if (index < 0) return null;
+  return { source: 'ray', index };
+}
+
 function normalize(vector) {
   const length = Math.hypot(vector.x, vector.y, vector.z) || 1;
   return { x: vector.x / length, y: vector.y / length, z: vector.z / length };
