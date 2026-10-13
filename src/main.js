@@ -12,6 +12,9 @@ import {
 } from './hand.js';
 import { installScenePassthrough } from './passthrough.js';
 import { EXHIBIT_VERSION } from './version.js';
+import { DESKTOP_BUTTONS } from './desktop-hands.js';
+import { bindDesktopButtons } from './controllers.js';
+import './lighting.js';
 
 const THREE = AFRAME.THREE;
 const SHELL_SEGMENTS = 96;
@@ -22,9 +25,9 @@ const SLIDER_X = 1.18;
 const DEFAULT_LIGHTNESS = 0.68;
 
 const ORBIT = {
-  yaw: 0.72,
-  polar: 1.16,
-  radius: 2.15,
+  yaw: 0.55,
+  polar: 1.15,
+  radius: 1.55,
 };
 
 function clamp(value, minimum, maximum) {
@@ -286,6 +289,7 @@ AFRAME.registerComponent('oklab-rgb-solid', {
     this.heldRoot.scale.setScalar(HAND_SCALE);
     this.setExhibitChromeVisible(false);
     this.endControllerCut();
+    this.el.sceneEl.emit('solid-held', { held: true });
   },
 
   attachToHand(handEl) {
@@ -307,6 +311,7 @@ AFRAME.registerComponent('oklab-rgb-solid', {
     this.updateClipPlane();
     if (handEl) handEl.setAttribute('raycaster', 'showLine', true);
     if (this.previewHand) this.previewHand.removeFromParent();
+    this.el.sceneEl.emit('solid-held', { held: false });
   },
 
   setExhibitChromeVisible(visible) {
@@ -851,19 +856,33 @@ AFRAME.registerComponent('turn-stick', {
 
 AFRAME.registerComponent('hold-solid', {
   init() {
-    this.onEnterVR = () => {
-      const solid = document.getElementById('solid').components['oklab-rgb-solid'];
-      if (solid) solid.attachToHand(this.el);
-    };
+    this.onEnterVR = () => this.hold();
     this.onExitVR = () => {
       const solid = document.getElementById('solid').components['oklab-rgb-solid'];
-      if (solid) solid.releaseFromHand();
+      if (solid && !solid.held) this.hold();
     };
     this.el.sceneEl.addEventListener('enter-vr', this.onEnterVR);
     this.el.sceneEl.addEventListener('exit-vr', this.onExitVR);
   },
+  play() {
+    this.holdWhenReady();
+  },
+  // The solid entity can finish loading after this hand. Wait for it, then
+  // keep it on the controller outside a headset the same way enter-vr does.
+  holdWhenReady() {
+    const el = document.getElementById('solid');
+    if (!el) return;
+    const attach = () => {
+      if (!sceneInHeadset(this.el.sceneEl)) this.hold();
+    };
+    if (el.hasLoaded) attach();
+    else el.addEventListener('loaded', attach, { once: true });
+  },
+  hold() {
+    const solid = document.getElementById('solid').components['oklab-rgb-solid'];
+    if (solid) solid.attachToHand(this.el);
+  },
   tick() {
-    if (!sceneInHeadset(this.el.sceneEl)) return;
     const data = this.el.getAttribute('raycaster');
     if (data && data.showLine) this.el.setAttribute('raycaster', 'showLine', false);
   },
@@ -925,7 +944,6 @@ AFRAME.registerComponent('quest-brush', {
     this.aHeld = false;
     this.gripHeld = false;
     this.onADown = () => {
-      if (!this.inHeadset()) return;
       this.aHeld = true;
       if (this.pointingAtSolid()) {
         this.cutting = true;
@@ -933,11 +951,10 @@ AFRAME.registerComponent('quest-brush', {
       }
     };
     this.onAUp = () => {
-      if (!this.inHeadset() || !this.aHeld) return;
+      if (!this.aHeld) return;
       this.releaseA();
     };
     this.onGripDown = () => {
-      if (!this.inHeadset()) return;
       this.gripHeld = true;
       this.syncPick();
     };
@@ -946,7 +963,7 @@ AFRAME.registerComponent('quest-brush', {
       this.pickMarker.visible = false;
     };
     this.onTriggerDown = () => {
-      if (!this.inHeadset() || !this.brush) return;
+      if (!this.brush) return;
       this.painting = true;
       this.stroke = null;
       this.syncPaint();
@@ -964,18 +981,20 @@ AFRAME.registerComponent('quest-brush', {
       });
     };
 
-    this.el.addEventListener('abuttondown', this.onADown);
-    this.el.addEventListener('abuttonup', this.onAUp);
-    this.el.addEventListener('gripdown', this.onGripDown);
-    this.el.addEventListener('gripup', this.onGripUp);
-    this.el.addEventListener('triggerdown', this.onTriggerDown);
-    this.el.addEventListener('triggerup', this.onTriggerUp);
+    this.buttonHandlers = {
+      abuttondown: this.onADown,
+      abuttonup: this.onAUp,
+      gripdown: this.onGripDown,
+      gripup: this.onGripUp,
+      triggerdown: this.onTriggerDown,
+      triggerup: this.onTriggerUp,
+    };
+    for (const button of DESKTOP_BUTTONS) {
+      this.el.addEventListener(button.down, this.buttonHandlers[button.down]);
+      this.el.addEventListener(button.up, this.buttonHandlers[button.up]);
+    }
     this.el.addEventListener('controllerconnected', this.disarmCursor);
     this.el.addEventListener('controllermodelready', this.disarmCursor);
-  },
-
-  inHeadset() {
-    return sceneInHeadset(this.el.sceneEl);
   },
 
   solid() {
@@ -1202,12 +1221,10 @@ AFRAME.registerComponent('quest-brush', {
   },
 
   remove() {
-    this.el.removeEventListener('abuttondown', this.onADown);
-    this.el.removeEventListener('abuttonup', this.onAUp);
-    this.el.removeEventListener('gripdown', this.onGripDown);
-    this.el.removeEventListener('gripup', this.onGripUp);
-    this.el.removeEventListener('triggerdown', this.onTriggerDown);
-    this.el.removeEventListener('triggerup', this.onTriggerUp);
+    for (const button of DESKTOP_BUTTONS) {
+      this.el.removeEventListener(button.down, this.buttonHandlers[button.down]);
+      this.el.removeEventListener(button.up, this.buttonHandlers[button.up]);
+    }
     this.el.removeEventListener('controllerconnected', this.disarmCursor);
     this.el.removeEventListener('controllermodelready', this.disarmCursor);
     this.pickMarker.removeFromParent();
@@ -1252,9 +1269,16 @@ function bindHud() {
     if (document.activeElement !== slider) slider.value = String(lightness);
     readout.textContent = text;
     mode.textContent = cutaway ? 'Full solid' : 'Cutaway';
-    status.textContent = cutaway
-      ? 'The top of the solid is cut away at this lightness.'
-      : 'The complete sRGB surface, with no cut.';
+    const component = solid();
+    status.textContent = component && component.held
+      ? 'The solid sits on the left controller.'
+      : cutaway
+        ? 'The top of the solid is cut away at this lightness.'
+        : 'The complete sRGB surface, with no cut.';
+  });
+  bindDesktopButtons(document.getElementById('right-hand'));
+  scene.addEventListener('solid-held', (event) => {
+    if (event.detail.held) status.textContent = 'The solid sits on the left controller.';
   });
 
   const swatch = document.getElementById('brush-swatch');
