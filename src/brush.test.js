@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildStrokeArrays, colorAtLocalPoint, selectPick } from './brush.js';
+import {
+  buildStrokeArrays,
+  colorAtLocalPoint,
+  PICK_FILL_RADIUS,
+  PICK_RING_INNER,
+  PICK_RING_OUTER,
+  selectPick,
+} from './brush.js';
 import { labToWorld } from './scale.js';
 
 test('a point on the solid picks its sRGB color, and a point outside does not', () => {
@@ -20,6 +27,13 @@ test('a pick ray uses the start when it is already inside, otherwise the first s
   assert.deepEqual(selectPick(true, hits), { source: 'inside' });
   assert.deepEqual(selectPick(false, hits), { source: 'ray', index: 1 });
   assert.equal(selectPick(false, [{ color: false, onSolidSide: true }]), null);
+});
+
+test('the pick ring is a small outline around the color', () => {
+  assert.ok(PICK_FILL_RADIUS < PICK_RING_INNER);
+  assert.ok(PICK_RING_INNER < PICK_RING_OUTER);
+  assert.ok(PICK_RING_OUTER <= 0.016);
+  assert.ok(PICK_RING_OUTER - PICK_RING_INNER <= 0.005);
 });
 
 test('a paint stroke is a tube of the requested radius', () => {

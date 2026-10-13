@@ -1,13 +1,24 @@
 import { clamp01, linearToSrgb, oklabToLinearSrgb } from './oklab.js';
 import { BASE_Y, SCALE, VIEW_TARGET, labToWorld } from './scale.js';
 import { buildEdgeTubeArrays, buildShellArrays, buildSliceArrays } from './geometry.js';
-import { buildStrokeArrays, colorAtLocalPoint, selectPick, STROKE_RADIUS } from './brush.js';
 import {
+  buildStrokeArrays,
+  colorAtLocalPoint,
+  PICK_FILL_RADIUS,
+  PICK_RING_INNER,
+  PICK_RING_OUTER,
+  selectPick,
+  STROKE_RADIUS,
+} from './brush.js';
+import {
+  activeSliceMode,
   HAND_OFFSET_Z,
   HAND_ROTATION_X,
   HAND_SCALE,
+  levelCutNormal,
   localCutFromWorld,
   PLANE_RADIUS,
+  sliceClearsOnRelease,
   worldCutFromLocal,
 } from './hand.js';
 import { installScenePassthrough } from './passthrough.js';
@@ -493,34 +504,7 @@ AFRAME.registerComponent('oklab-rgb-solid', {
     this.planeAnchor.visible = false;
     this.heldRoot.add(this.planeAnchor);
 
-    const fill = new THREE.Mesh(
-      new THREE.CircleGeometry(PLANE_RADIUS, 64),
-      new THREE.MeshBasicMaterial({
-        color: 0xf4f0e8,
-        transparent: true,
-        opacity: 0.14,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-        toneMapped: false,
-      }),
-    );
-    fill.rotation.x = -Math.PI / 2;
-    fill.renderOrder = 2;
-
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(PLANE_RADIUS - 0.012, PLANE_RADIUS, 80),
-      new THREE.MeshBasicMaterial({
-        color: 0xf7f4ee,
-        transparent: true,
-        opacity: 0.9,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-        toneMapped: false,
-      }),
-    );
-    ring.rotation.x = -Math.PI / 2;
-    ring.renderOrder = 2;
-
+    // Only the colored cross-section is drawn. The blade itself stays invisible.
     this.sectionMesh = new THREE.Mesh(
       new THREE.CircleGeometry(PLANE_RADIUS - 0.001, 72),
       this.sectionMaterial,
@@ -528,7 +512,7 @@ AFRAME.registerComponent('oklab-rgb-solid', {
     this.sectionMesh.name = 'oklab-section';
     this.sectionMesh.rotation.x = -Math.PI / 2;
     this.sectionMesh.renderOrder = 2;
-    this.planeAnchor.add(fill, ring, this.sectionMesh);
+    this.planeAnchor.add(this.sectionMesh);
   },
 
   billboardPanel() {
@@ -611,8 +595,8 @@ AFRAME.registerComponent('oklab-rgb-solid', {
 
     const backing = document.createElement('a-plane');
     backing.setAttribute('width', 1.12);
-    backing.setAttribute('height', 1.96);
-    backing.setAttribute('position', { x: 0, y: -0.86, z: -0.02 });
+    backing.setAttribute('height', 2.36);
+    backing.setAttribute('position', { x: 0, y: -1.06, z: -0.02 });
     backing.setAttribute('material', { color: '#141820', shader: 'flat', opacity: 0.88 });
     this.panel.appendChild(backing);
 
@@ -633,8 +617,14 @@ AFRAME.registerComponent('oklab-rgb-solid', {
       'edges. The cut sticks',
       'to the solid.',
       '',
-      'Tap A while pointing',
-      'away to close the cut.',
+      'Hold B for a level cut.',
+      'It stays flat in a and b,',
+      'so sliding it only',
+      'changes lightness.',
+      '',
+      'Tap A or B while',
+      'pointing away to close',
+      'the cut.',
       '',
       'Hold the back trigger.',
       'Its ray picks the solid.',
@@ -928,11 +918,11 @@ AFRAME.registerComponent('quest-brush', {
       side: THREE.DoubleSide,
     };
     this.pickFill = new THREE.Mesh(
-      new THREE.CircleGeometry(0.022, 32),
+      new THREE.CircleGeometry(PICK_FILL_RADIUS, 32),
       new THREE.MeshBasicMaterial({ ...markerMaterial, color: 0xffffff }),
     );
     this.pickRing = new THREE.Mesh(
-      new THREE.RingGeometry(0.028, 0.036, 48),
+      new THREE.RingGeometry(PICK_RING_INNER, PICK_RING_OUTER, 48),
       new THREE.MeshBasicMaterial({ ...markerMaterial, color: 0xffffff }),
     );
     this.pickFill.renderOrder = 20;
@@ -942,17 +932,23 @@ AFRAME.registerComponent('quest-brush', {
     this.cameraPosition = new THREE.Vector3();
 
     this.aHeld = false;
+    this.bHeld = false;
     this.gripHeld = false;
     this.onADown = () => {
       this.aHeld = true;
-      if (this.pointingAtSolid()) {
-        this.cutting = true;
-        this.syncCut();
-      }
+      this.followSlice();
     };
     this.onAUp = () => {
       if (!this.aHeld) return;
-      this.releaseA();
+      this.releaseSlice('a');
+    };
+    this.onBDown = () => {
+      this.bHeld = true;
+      this.followSlice();
+    };
+    this.onBUp = () => {
+      if (!this.bHeld) return;
+      this.releaseSlice('b');
     };
     this.onGripDown = () => {
       this.gripHeld = true;
@@ -984,6 +980,8 @@ AFRAME.registerComponent('quest-brush', {
     this.buttonHandlers = {
       abuttondown: this.onADown,
       abuttonup: this.onAUp,
+      bbuttondown: this.onBDown,
+      bbuttonup: this.onBUp,
       gripdown: this.onGripDown,
       gripup: this.onGripUp,
       triggerdown: this.onTriggerDown,
@@ -1003,23 +1001,35 @@ AFRAME.registerComponent('quest-brush', {
   },
 
   tick() {
-    if (this.aHeld && this.pointingAtSolid()) {
-      this.cutting = true;
-      this.syncCut();
-    } else if (this.aHeld) {
-      this.cutting = false;
-    }
+    this.followSlice();
     if (this.gripHeld) this.syncPick();
     if (this.painting) this.syncPaint();
     this.syncLine();
   },
 
-  // Letting go of A while the controller is aimed at the solid leaves the
-  // cut where it is. A tap while aimed elsewhere closes it.
-  releaseA() {
-    this.aHeld = false;
-    this.cutting = false;
-    if (!this.pointingAtSolid()) this.clearSlice();
+  followSlice() {
+    if (!this.aHeld && !this.bHeld) return;
+    const mode = activeSliceMode(this.aHeld, this.bHeld, this.pointingAtSolid());
+    if (mode) {
+      this.cutting = true;
+      this.syncCut(mode);
+    } else if (this.aHeld || this.bHeld) {
+      this.cutting = false;
+    }
+  },
+
+  // Letting go while aimed at the solid leaves the cut where it is. A tap
+  // of the last slice button while aimed elsewhere closes it.
+  releaseSlice(which) {
+    if (which === 'a') this.aHeld = false;
+    else this.bHeld = false;
+    const otherHeld = which === 'a' ? this.bHeld : this.aHeld;
+    if (activeSliceMode(this.aHeld, this.bHeld, this.pointingAtSolid())) {
+      this.followSlice();
+    } else {
+      this.cutting = false;
+      if (sliceClearsOnRelease(otherHeld, this.pointingAtSolid())) this.clearSlice();
+    }
     this.syncLine();
   },
 
@@ -1048,11 +1058,17 @@ AFRAME.registerComponent('quest-brush', {
     return this.solidBox.containsPoint(this.tip);
   },
 
-  syncCut() {
+  syncCut(mode) {
     const solid = this.solid();
     if (!solid) return;
     this.readAim();
-    this.up.set(0, 1, 0).transformDirection(this.el.object3D.matrixWorld).normalize();
+    if (mode === 'level') {
+      solid.heldRoot.updateWorldMatrix(true, false);
+      const normal = levelCutNormal(solid.heldRoot.matrixWorld.elements);
+      this.up.set(normal.x, normal.y, normal.z);
+    } else {
+      this.up.set(0, 1, 0).transformDirection(this.el.object3D.matrixWorld).normalize();
+    }
     solid.setControllerCut(this.tip, this.up);
   },
 
