@@ -67,6 +67,13 @@
         cursor: pointer;
       }
       button:hover { background: rgba(255, 255, 255, 0.06); }
+      button[aria-pressed="true"] { background: rgba(255, 255, 255, 0.16); }
+      #hand-controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 4px 0 12px;
+      }
       #brush-swatch {
         display: inline-block;
         width: 0.8em;
@@ -95,7 +102,12 @@
       light="defaultLightsEnabled: false"
       background="color: #0e1014"
       vr-mode-ui="enabled: true"
+      controller-lighting
+      desktop-rig
       orbit-view>
+      <a-entity light="type: hemisphere; color: #fff4e8; groundColor: #8d8478; intensity: 1.5"></a-entity>
+      <a-entity light="type: directional; color: #ffffff; intensity: 2.2" position="1.5 3.2 1.8"></a-entity>
+      <a-entity light="type: directional; color: #d7e2f6; intensity: 0.9" position="-2 1.8 -1"></a-entity>
       <a-entity id="rig">
         <a-entity
           id="camera"
@@ -108,14 +120,16 @@
           raycaster="objects: .clickable; far: 8; lineColor: #f4f0e8; lineOpacity: 0.4"
           exhibit-ray
           locomotion
-          hold-solid></a-entity>
+          hold-solid
+          controller-proxy="hand: left"></a-entity>
         <a-entity
           id="right-hand"
           laser-controls="hand: right"
           raycaster="objects: .clickable; far: 8; lineColor: #f4f0e8; lineOpacity: 0.4"
           exhibit-ray
           turn-stick
-          quest-brush></a-entity>
+          quest-brush
+          controller-proxy="hand: right"></a-entity>
       </a-entity>
       <a-entity id="world">
         <a-entity id="gallery" gallery hide-on-enter-ar></a-entity>
@@ -126,16 +140,21 @@
     <aside id="hud">
       <h1>sRGB solid in Oklab</h1>
       <p class="lede">Every color an sRGB display can produce, set down at its Oklab coordinate. Lightness is up. Green–red and blue–yellow are the other two axes, on the same scale.</p>
-      <label for="lightness">Lightness cut <output id="lightness-value">0.68</output></label>
-      <input id="lightness" type="range" min="0" max="1" step="0.002" value="0.68">
-      <button id="mode" type="button">Full solid</button>
-      <p id="status">The top of the solid is cut away at this lightness.</p>
+      <div id="stand-controls" hidden>
+        <label for="lightness">Lightness cut <output id="lightness-value">0.68</output></label>
+        <input id="lightness" type="range" min="0" max="1" step="0.002" value="0.68">
+        <button id="mode" type="button">Full solid</button>
+      </div>
+      <p id="status">The solid sits on the left controller.</p>
+      <div id="hand-controls">
+        <button id="btn-a" type="button" aria-pressed="false" title="Hold to slice">A</button>
+        <button id="btn-grip" type="button" aria-pressed="false" title="Hold to pick">Back trigger</button>
+        <button id="btn-trigger" type="button" aria-pressed="false" title="Hold to paint">Trigger</button>
+      </div>
       <p>Brush <span id="brush-swatch"></span><output id="brush-value">none yet</output></p>
       <ul>
-        <li>Drag to orbit, scroll to zoom, R resets the view</li>
-        <li>Up and down arrows move the cut. F switches to the full solid</li>
-        <li>In a headset the real room shows through. The left controller holds the solid, lightness along its aim. Hold A on the solid to lay a blade from the right controller. The blade follows that controller's tilt and roll, and the cut stays on the solid. Below stays solid, above keeps only its edges. Tap A while not pointing at the solid to close it.</li>
-        <li>Hold the back trigger, the grip behind the index finger. Its ray picks a color on the solid, or inside it. A colored circle with a white outline marks that point. The index trigger paints with it.</li>
+        <li>Drag a controller by its pale knob to move it. Right-drag, or shift-drag, to aim it. Drag empty space to orbit, scroll to zoom, R resets the view</li>
+        <li>The buttons stand in for the right controller. Hold A to slice, the back trigger to pick, and the trigger to paint. In a headset those are the real buttons, and the room shows through</li>
         <li>The left stick walks. Flick the right stick sideways to turn.</li>
       </ul>
     </aside>

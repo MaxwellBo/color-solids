@@ -2,7 +2,7 @@
 
 An [A-Frame](https://aframe.io/) scene that draws the sRGB gamut as a solid in [Oklab](https://bottosson.github.io/posts/oklab/). Every color an sRGB display can show is placed at its Oklab coordinate: lightness up, green–red across, blue–yellow in depth. L, a, and b share one scale, so the shape is the gamut itself — narrow at black and white, wide through the saturated middle.
 
-A horizontal cut opens the volume at one lightness. The cap is the slice of sRGB colors that live on that plane. In a headset the real room shows through, and the solid leaves the plinth and sits on the left controller. The right controller's A button lays a blade that follows its tilt and roll and leaves only the solid's edges above it. The cut stays on the solid when you let go. Tap A while not pointing at the solid to close it. Hold the back trigger, the grip behind the index finger, to cast a ray into the solid and pick a color, then paint it with the index trigger.
+A horizontal cut opens the volume at one lightness. The cap is the slice of sRGB colors that live on that plane. In a headset the real room shows through, and the solid sits on the left controller. The same two controllers are on screen without a headset: drag each one by its knob, and use the A, back trigger, and trigger buttons in the panel. The right controller's A button lays a blade that follows its tilt and roll and leaves only the solid's edges above it. The cut stays on the solid when you let go. Tap A while not pointing at the solid to close it. Hold the back trigger, the grip behind the index finger, to cast a ray into the solid and pick a color, then paint it with the index trigger.
 
 ## Run
 
@@ -22,9 +22,8 @@ In the repository settings, set **Pages → Build and deployment → Source** to
 
 ## Controls
 
-- Drag orbits the desktop camera. Scroll zooms. `R` resets the view.
-- The slider, `↑` / `↓`, or the in-world lightness track move the desktop cut.
-- `F`, or the Full solid / Cutaway control, closes or opens the volume on the desktop.
+- Drag empty space to orbit the camera. Scroll zooms. `R` resets the view.
+- Without a headset, each controller has a pale knob. Drag the knob to move that hand. Right-drag, or shift-drag, aims it. The A, back trigger, and trigger buttons in the panel fire the same events as the Quest controller.
 - In a headset the session opens with camera passthrough when the device supports it, and the virtual floor steps aside so the room stays visible. The solid attaches to the left controller. Point the controller up and lightness points up. Hold A on the right controller while aiming at the solid to project a blade from that controller. The blade follows the controller's tilt and roll, like a spatula. The solid below the blade stays opaque, the solid above keeps only the main edges of the gamut, and the blade shows the cross-section. Letting go of A leaves the cut on the solid, so moving the left controller carries the slice with it. Tap A while not pointing at the solid to close it.
 - Hold the back trigger (the grip behind the index finger). A ray runs out of the right controller. Where it meets the solid, a circle of that color with a white outline marks the point. If the ray starts inside the solid, that closest point is the start of the ray, and the same circle is drawn there so it stays visible through the shell. The index trigger then paints that color into the room.
 - The left stick walks. Flicking the right stick sideways snap-turns.
