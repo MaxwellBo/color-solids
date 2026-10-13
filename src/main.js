@@ -1059,9 +1059,21 @@ AFRAME.registerComponent('quest-brush', {
     const here = solid.colorAtWorldPoint(this.tip);
     if (!this.aimRay) this.aimRay = new THREE.Raycaster();
     this.aimRay.set(this.tip, this.forward, 0, 8);
+    // The cut moves during this frame's earlier tick, so the cap's world
+    // matrix is still the previous pose until something asks it to update.
+    solid.shellMesh.updateWorldMatrix(true, false);
     const targets = [solid.shellMesh];
-    if (solid.sectionMesh && solid.sectionMesh.visible) targets.push(solid.sectionMesh);
-    const hits = this.aimRay.intersectObjects(targets, false).map((hit) => {
+    if (solid.sectionMesh && solid.sectionMesh.visible && solid.planeAnchor.visible) {
+      solid.sectionMesh.updateWorldMatrix(true, false);
+      targets.push(solid.sectionMesh);
+    }
+    // The shell faces outward. A ray that enters through the clipped side
+    // has to see the far wall of the kept half, which is the inside of those faces.
+    const previousSide = solid.shellMaterial.side;
+    solid.shellMaterial.side = THREE.DoubleSide;
+    const rawHits = this.aimRay.intersectObjects(targets, false);
+    solid.shellMaterial.side = previousSide;
+    const hits = rawHits.map((hit) => {
       const rgb = solid.colorAtWorldPoint(hit.point);
       return {
         point: hit.point,
