@@ -1,7 +1,7 @@
-import { clamp01, inGamut, linearToSrgb, oklabToLinearSrgb } from './oklab.js';
+import { clamp01, linearToSrgb, oklabToLinearSrgb } from './oklab.js';
 import { BASE_Y, SCALE, VIEW_TARGET, labToWorld } from './scale.js';
 import { buildEdgeTubeArrays, buildShellArrays, buildSliceArrays } from './geometry.js';
-import { buildStrokeArrays, colorAtLocalPoint, STROKE_RADIUS } from './brush.js';
+import { buildStrokeArrays, colorAtLocalPoint, selectPick, STROKE_RADIUS } from './brush.js';
 import {
   HAND_OFFSET_Z,
   HAND_ROTATION_X,
@@ -11,6 +11,7 @@ import {
   worldCutFromLocal,
 } from './hand.js';
 import { installScenePassthrough } from './passthrough.js';
+import { EXHIBIT_VERSION } from './version.js';
 
 const THREE = AFRAME.THREE;
 const SHELL_SEGMENTS = 96;
@@ -49,27 +50,6 @@ function vertexColorMaterial(options) {
     toneMapped: false,
     ...options,
   });
-}
-
-function chromaColor(a, b) {
-  const lightness = 0.66;
-  if (inGamut(oklabToLinearSrgb(lightness, a, b))) {
-    return oklabToLinearSrgb(lightness, a, b);
-  }
-  let inside = 0;
-  let outside = 1;
-  let rgb = oklabToLinearSrgb(lightness, 0, 0);
-  for (let step = 0; step < 14; step++) {
-    const mid = (inside + outside) / 2;
-    const candidate = oklabToLinearSrgb(lightness, a * mid, b * mid);
-    if (inGamut(candidate)) {
-      inside = mid;
-      rgb = candidate;
-    } else {
-      outside = mid;
-    }
-  }
-  return rgb;
 }
 
 function linearColor(rgb) {
@@ -198,7 +178,6 @@ AFRAME.registerComponent('oklab-rgb-solid', {
     this.cutLocalPoint = new THREE.Vector3();
     this.cutLocalNormal = new THREE.Vector3(0, 1, 0);
     this.yAxis = new THREE.Vector3(0, 1, 0);
-    this.axisLabels = [];
 
     const renderer = this.el.sceneEl.renderer;
     renderer.localClippingEnabled = true;
@@ -253,8 +232,6 @@ AFRAME.registerComponent('oklab-rgb-solid', {
     this.sliceMesh.name = 'oklab-slice';
     this.heldRoot.add(this.sliceMesh);
 
-    this.chromaAxes = buildChromaAxes();
-    root.add(this.chromaAxes);
     this.buildCutPlane();
     this.buildSlider();
     this.buildPanel();
@@ -300,7 +277,7 @@ AFRAME.registerComponent('oklab-rgb-solid', {
   },
 
   // Parent the colored solid to a controller (or a stand-in object). The
-  // slider, axis legend, and plinth stay where they are.
+  // slider and plinth stay where they are.
   attachToObject(object3D) {
     this.held = true;
     object3D.add(this.heldRoot);
@@ -333,9 +310,7 @@ AFRAME.registerComponent('oklab-rgb-solid', {
   },
 
   setExhibitChromeVisible(visible) {
-    this.chromaAxes.visible = visible;
     if (this.slider) this.slider.setAttribute('visible', visible);
-    for (const label of this.axisLabels) label.setAttribute('visible', visible);
   },
 
   // Store the spatula blade on the solid. worldNormal points to the side
@@ -631,13 +606,15 @@ AFRAME.registerComponent('oklab-rgb-solid', {
 
     const backing = document.createElement('a-plane');
     backing.setAttribute('width', 1.12);
-    backing.setAttribute('height', 1.78);
-    backing.setAttribute('position', { x: 0, y: -0.76, z: -0.02 });
+    backing.setAttribute('height', 1.96);
+    backing.setAttribute('position', { x: 0, y: -0.86, z: -0.02 });
     backing.setAttribute('material', { color: '#141820', shader: 'flat', opacity: 0.88 });
     this.panel.appendChild(backing);
 
     const body = document.createElement('a-text');
     body.setAttribute('value', [
+      `v${EXHIBIT_VERSION}`,
+      '',
       'The solid sits on the',
       'left controller.',
       'Lightness follows its aim.',
@@ -654,10 +631,11 @@ AFRAME.registerComponent('oklab-rgb-solid', {
       'Tap A while pointing',
       'away to close the cut.',
       '',
-      'Hold B and move through',
-      'the solid to pick. A',
-      'white ring marks the',
-      'color.',
+      'Hold the back trigger.',
+      'Its ray picks the solid.',
+      'A ring shows the color',
+      'where it meets, or',
+      'inside the volume.',
       '',
       'Hold the trigger to paint',
       'with the picked color.',
@@ -673,24 +651,6 @@ AFRAME.registerComponent('oklab-rgb-solid', {
     body.setAttribute('baseline', 'top');
     body.setAttribute('position', { x: -0.46, y: 0.05, z: 0 });
     this.panel.appendChild(body);
-
-    this.addAxisLabel('+a  red', 0.92, 0.14, 0.18, 0);
-    this.addAxisLabel('-a  green', -0.92, 0.14, 0.18, 0);
-    this.addAxisLabel('+b  yellow', 0.18, 0.14, 0.98, 0);
-    this.addAxisLabel('-b  blue', -0.18, 0.14, -0.98, 180);
-  },
-
-  addAxisLabel(value, x, y, z, yaw) {
-    const label = document.createElement('a-text');
-    label.setAttribute('value', value);
-    label.setAttribute('align', 'center');
-    label.setAttribute('color', '#f4f0e8');
-    label.setAttribute('width', 1.1);
-    label.setAttribute('side', 'double');
-    label.setAttribute('position', { x, y, z });
-    label.setAttribute('rotation', { x: 0, y: yaw, z: 0 });
-    this.el.appendChild(label);
-    this.axisLabels.push(label);
   },
 });
 
@@ -707,72 +667,6 @@ function lightnessTrackGeometry() {
   }
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   return geometry;
-}
-
-function buildChromaAxes() {
-  const group = new THREE.Group();
-  group.add(axisRibbon(-0.48, 0, 0.48, 0));
-  group.add(axisRibbon(0, -0.5, 0, 0.5));
-  addArrow(group, 0.48, 0, 1, 0);
-  addArrow(group, -0.48, 0, -1, 0);
-  addArrow(group, 0, 0.5, 0, 1);
-  addArrow(group, 0, -0.5, 0, -1);
-  return group;
-}
-
-function axisRibbon(a0, b0, a1, b1) {
-  const steps = 64;
-  const width = 0.028;
-  const positions = new Float32Array((steps + 1) * 6);
-  const colors = new Float32Array((steps + 1) * 6);
-  const indices = new Uint32Array(steps * 6);
-  const worldX = (a1 - a0) * SCALE;
-  const worldZ = (b1 - b0) * SCALE;
-  const length = Math.hypot(worldX, worldZ) || 1;
-  const px = (-worldZ / length) * width / 2;
-  const pz = (worldX / length) * width / 2;
-
-  for (let index = 0; index <= steps; index++) {
-    const t = index / steps;
-    const a = a0 + (a1 - a0) * t;
-    const b = b0 + (b1 - b0) * t;
-    const rgb = chromaColor(a, b);
-    for (let side = 0; side < 2; side++) {
-      const sign = side === 0 ? -1 : 1;
-      const offset = (index * 2 + side) * 3;
-      positions[offset] = a * SCALE + sign * px;
-      positions[offset + 1] = 0.055;
-      positions[offset + 2] = b * SCALE + sign * pz;
-      colors[offset] = clamp01(rgb.r);
-      colors[offset + 1] = clamp01(rgb.g);
-      colors[offset + 2] = clamp01(rgb.b);
-    }
-  }
-
-  for (let index = 0; index < steps; index++) {
-    const vertex = index * 2;
-    const offset = index * 6;
-    indices[offset] = vertex;
-    indices[offset + 1] = vertex + 1;
-    indices[offset + 2] = vertex + 2;
-    indices[offset + 3] = vertex + 1;
-    indices[offset + 4] = vertex + 3;
-    indices[offset + 5] = vertex + 2;
-  }
-
-  return new THREE.Mesh(geometryFromArrays({ positions, colors, indices }), vertexColorMaterial({ side: THREE.DoubleSide }));
-}
-
-function addArrow(group, a, b, directionA, directionB) {
-  const cone = new THREE.Mesh(
-    new THREE.ConeGeometry(0.034, 0.09, 14),
-    new THREE.MeshBasicMaterial({ color: linearColor(chromaColor(a, b)), toneMapped: false }),
-  );
-  const direction = new THREE.Vector3(directionA, 0, directionB).normalize();
-  cone.position.set(a * SCALE, 0.055, b * SCALE);
-  cone.position.addScaledVector(direction, 0.045);
-  cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
-  group.add(cone);
 }
 
 function closestPointOnRayToLine(ray, lineOrigin, lineDirection, target) {
@@ -1007,7 +901,7 @@ AFRAME.registerComponent('quest-brush', {
     this.pickMarker = new THREE.Group();
     this.pickMarker.name = 'pick-marker';
     this.pickMarker.visible = false;
-    this.pickMarker.renderOrder = 6;
+    this.pickMarker.renderOrder = 20;
     const markerMaterial = {
       toneMapped: false,
       depthTest: false,
@@ -1022,14 +916,14 @@ AFRAME.registerComponent('quest-brush', {
       new THREE.RingGeometry(0.028, 0.036, 48),
       new THREE.MeshBasicMaterial({ ...markerMaterial, color: 0xffffff }),
     );
-    this.pickFill.renderOrder = 6;
-    this.pickRing.renderOrder = 7;
+    this.pickFill.renderOrder = 20;
+    this.pickRing.renderOrder = 21;
     this.pickMarker.add(this.pickFill, this.pickRing);
     this.el.sceneEl.object3D.add(this.pickMarker);
     this.cameraPosition = new THREE.Vector3();
 
     this.aHeld = false;
-    this.bHeld = false;
+    this.gripHeld = false;
     this.onADown = () => {
       if (!this.inHeadset()) return;
       this.aHeld = true;
@@ -1042,13 +936,13 @@ AFRAME.registerComponent('quest-brush', {
       if (!this.inHeadset() || !this.aHeld) return;
       this.releaseA();
     };
-    this.onBDown = () => {
+    this.onGripDown = () => {
       if (!this.inHeadset()) return;
-      this.bHeld = true;
+      this.gripHeld = true;
       this.syncPick();
     };
-    this.onBUp = () => {
-      this.bHeld = false;
+    this.onGripUp = () => {
+      this.gripHeld = false;
       this.pickMarker.visible = false;
     };
     this.onTriggerDown = () => {
@@ -1072,8 +966,8 @@ AFRAME.registerComponent('quest-brush', {
 
     this.el.addEventListener('abuttondown', this.onADown);
     this.el.addEventListener('abuttonup', this.onAUp);
-    this.el.addEventListener('bbuttondown', this.onBDown);
-    this.el.addEventListener('bbuttonup', this.onBUp);
+    this.el.addEventListener('gripdown', this.onGripDown);
+    this.el.addEventListener('gripup', this.onGripUp);
     this.el.addEventListener('triggerdown', this.onTriggerDown);
     this.el.addEventListener('triggerup', this.onTriggerUp);
     this.el.addEventListener('controllerconnected', this.disarmCursor);
@@ -1096,7 +990,7 @@ AFRAME.registerComponent('quest-brush', {
     } else if (this.aHeld) {
       this.cutting = false;
     }
-    if (this.bHeld) this.syncPick();
+    if (this.gripHeld) this.syncPick();
     if (this.painting) this.syncPaint();
     this.syncLine();
   },
@@ -1143,34 +1037,77 @@ AFRAME.registerComponent('quest-brush', {
     solid.setControllerCut(this.tip, this.up);
   },
 
-  // Hold B and move the tip through the volume. The white ring is the
-  // reticle; the disc inside it is the color under that point.
+  // The back trigger casts this ray. Inside the solid, the closest color
+  // is the ray's start. From outside, it is the first point the ray meets.
   syncPick() {
     const solid = this.solid();
-    if (!solid) {
+    if (!solid || !solid.shellMesh) {
       this.pickMarker.visible = false;
       return null;
     }
     this.readAim();
-    const rgb = solid.colorAtWorldPoint(this.tip);
-    if (!rgb) {
+    const sample = this.sampleRay(solid);
+    if (!sample) {
       this.pickMarker.visible = false;
       return null;
     }
+    this.showPick(sample.point, sample.rgb);
+    return sample.rgb;
+  },
+
+  sampleRay(solid) {
+    const here = solid.colorAtWorldPoint(this.tip);
+    if (!this.aimRay) this.aimRay = new THREE.Raycaster();
+    this.aimRay.set(this.tip, this.forward, 0, 8);
+    // The cut moves during this frame's earlier tick, so the cap's world
+    // matrix is still the previous pose until something asks it to update.
+    solid.shellMesh.updateWorldMatrix(true, false);
+    const targets = [solid.shellMesh];
+    if (solid.sectionMesh && solid.sectionMesh.visible && solid.planeAnchor.visible) {
+      solid.sectionMesh.updateWorldMatrix(true, false);
+      targets.push(solid.sectionMesh);
+    }
+    // The shell faces outward. A ray that enters through the clipped side
+    // has to see the far wall of the kept half, which is the inside of those faces.
+    const previousSide = solid.shellMaterial.side;
+    solid.shellMaterial.side = THREE.DoubleSide;
+    const rawHits = this.aimRay.intersectObjects(targets, false);
+    solid.shellMaterial.side = previousSide;
+    const hits = rawHits.map((hit) => {
+      const rgb = solid.colorAtWorldPoint(hit.point);
+      return {
+        point: hit.point,
+        color: Boolean(rgb),
+        onSolidSide: this.hitOnSolidSide(solid, hit),
+        rgb,
+      };
+    });
+    const choice = selectPick(Boolean(here), hits);
+    if (!choice) return null;
+    if (choice.source === 'inside') return { point: this.tip.clone(), rgb: here };
+    const hit = hits[choice.index];
+    return { point: hit.point.clone(), rgb: hit.rgb };
+  },
+
+  hitOnSolidSide(solid, hit) {
+    if (!solid.cutActive || hit.object === solid.sectionMesh) return true;
+    return solid.clipPlane.distanceToPoint(hit.point) >= -0.004;
+  },
+
+  showPick(point, rgb) {
     this.setBrushColor(rgb);
     this.pickFill.material.color.copy(linearColor(rgb));
-    this.pickMarker.position.copy(this.tip);
+    this.pickMarker.position.copy(point);
     const camera = this.el.sceneEl.camera;
     if (camera) {
       camera.getWorldPosition(this.cameraPosition);
       this.pickMarker.lookAt(this.cameraPosition);
-      this.pickMarker.position.addScaledVector(
-        this.cameraPosition.sub(this.tip).normalize(),
-        0.012,
-      );
+      const towardCamera = this.cameraPosition.sub(point);
+      if (towardCamera.lengthSq() > 1e-8) {
+        this.pickMarker.position.addScaledVector(towardCamera.normalize(), 0.012);
+      }
     }
     this.pickMarker.visible = true;
-    return rgb;
   },
 
   pickFromTip() {
@@ -1267,8 +1204,8 @@ AFRAME.registerComponent('quest-brush', {
   remove() {
     this.el.removeEventListener('abuttondown', this.onADown);
     this.el.removeEventListener('abuttonup', this.onAUp);
-    this.el.removeEventListener('bbuttondown', this.onBDown);
-    this.el.removeEventListener('bbuttonup', this.onBUp);
+    this.el.removeEventListener('gripdown', this.onGripDown);
+    this.el.removeEventListener('gripup', this.onGripUp);
     this.el.removeEventListener('triggerdown', this.onTriggerDown);
     this.el.removeEventListener('triggerup', this.onTriggerUp);
     this.el.removeEventListener('controllerconnected', this.disarmCursor);
