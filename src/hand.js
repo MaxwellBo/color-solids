@@ -24,6 +24,29 @@ export function sliceClearsOnRelease(otherHeld, pointing) {
   return !otherHeld && !pointing;
 }
 
+// The spatula's blade contains the pointing ray. Its normal is the
+// controller's up with the part along that ray removed, so a natural point
+// lays the blade flat and roll still tips it.
+export function bladeNormal(up, direction) {
+  const length = Math.hypot(direction.x, direction.y, direction.z) || 1;
+  const dx = direction.x / length;
+  const dy = direction.y / length;
+  const dz = direction.z / length;
+  const along = up.x * dx + up.y * dy + up.z * dz;
+  const normal = {
+    x: up.x - dx * along,
+    y: up.y - dy * along,
+    z: up.z - dz * along,
+  };
+  const normalLength = Math.hypot(normal.x, normal.y, normal.z);
+  if (normalLength < 1e-8) return { x: up.x, y: up.y, z: up.z };
+  return {
+    x: normal.x / normalLength,
+    y: normal.y / normalLength,
+    z: normal.z / normalLength,
+  };
+}
+
 export function rotateX(point, angle) {
   const cos = Math.cos(angle);
   const sin = Math.sin(angle);

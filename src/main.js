@@ -12,6 +12,7 @@ import {
 } from './brush.js';
 import {
   activeSliceMode,
+  bladeNormal,
   HAND_OFFSET_Z,
   HAND_ROTATION_X,
   HAND_SCALE,
@@ -610,8 +611,8 @@ AFRAME.registerComponent('oklab-rgb-solid', {
       'Your room shows through.',
       '',
       'Hold A on the solid.',
-      'The blade follows the',
-      'right controller, like a',
+      'The blade follows where',
+      'it points, like a',
       'spatula. Below stays',
       'solid. Above, only the',
       'edges. The cut sticks',
@@ -1067,7 +1068,9 @@ AFRAME.registerComponent('quest-brush', {
       const normal = levelCutNormal(solid.heldRoot.matrixWorld.elements);
       this.up.set(normal.x, normal.y, normal.z);
     } else {
-      this.up.set(0, 1, 0).transformDirection(this.el.object3D.matrixWorld).normalize();
+      this.up.set(0, 1, 0).transformDirection(this.el.object3D.matrixWorld);
+      const normal = bladeNormal(this.up, this.forward);
+      this.up.set(normal.x, normal.y, normal.z);
     }
     solid.setControllerCut(this.tip, this.up);
   },

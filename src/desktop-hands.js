@@ -1,14 +1,19 @@
 // Desktop poses for the same hand entities a headset tracks. The left
 // controller's aim (−Z) points mostly up, so lightness on the held solid
-// points up. The right controller aims at that solid.
+// points up. The right controller's pointer aims at that solid.
 export const LEFT_HAND_POSE = {
   position: { x: 0.1121, y: 1.185, z: 0.1314 },
   rotation: { x: 1.02, y: 0.42, z: 0.05 },
 };
 
+// Quest controllers point below the grip's −Z. This is the Quest 2 ray, and
+// the angle the desktop controller and the A slice both use.
+export const POINT_DIRECTION = { x: 0, y: -0.9, z: -1 };
+
 export const RIGHT_HAND_POSE = {
   position: { x: 0.42, y: 1.28, z: 0.42 },
-  rotation: { x: 0.2761, y: 0.7661, z: -0.194 },
+  // YXZ, matching A-Frame. The grip points up; the pointer aims at the solid.
+  rotation: { x: 0.9305, y: 0.7854, z: 0 },
 };
 
 export function handPose(hand) {
