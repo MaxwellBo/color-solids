@@ -51,6 +51,12 @@ test('a drag ray meets the camera-facing plane', () => {
 });
 
 test('desktop buttons emit the quest controller events', () => {
-  assert.deepEqual(DESKTOP_BUTTONS.map((button) => button.down), ['abuttondown', 'gripdown', 'triggerdown']);
-  assert.deepEqual(DESKTOP_BUTTONS.map((button) => button.up), ['abuttonup', 'gripup', 'triggerup']);
+  assert.deepEqual(
+    DESKTOP_BUTTONS.map((button) => button.down),
+    ['abuttondown', 'bbuttondown', 'gripdown', 'triggerdown'],
+  );
+  assert.deepEqual(
+    DESKTOP_BUTTONS.map((button) => button.up),
+    ['abuttonup', 'bbuttonup', 'gripup', 'triggerup'],
+  );
 });

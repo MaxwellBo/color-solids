@@ -6,9 +6,23 @@ export const HAND_SCALE = 0.2;
 export const HAND_OFFSET_Z = -0.02;
 export const HAND_ROTATION_X = -Math.PI / 2;
 
-// The cutting disc is wide enough to cover a hand-sized solid when the other
-// controller's tip is anywhere on it, with a margin that reads as a plane.
+// The colored cap is wide enough to cover a hand-sized solid wherever the
+// other controller's tip sits on it.
 export const PLANE_RADIUS = 0.5;
+
+// B holds a lightness-level blade. A holds the spatula. Either one moves an
+// existing cut only while the controller is aimed at the solid.
+export function activeSliceMode(aHeld, bHeld, pointing) {
+  if (!pointing) return null;
+  if (bHeld) return 'level';
+  if (aHeld) return 'spatula';
+  return null;
+}
+
+// Releasing the last slice button while aimed elsewhere closes the cut.
+export function sliceClearsOnRelease(otherHeld, pointing) {
+  return !otherHeld && !pointing;
+}
 
 export function rotateX(point, angle) {
   const cos = Math.cos(angle);
@@ -86,6 +100,17 @@ export function localCutFromWorld(worldPoint, worldNormal, elements) {
       z: r2x * worldNormal.x + r2y * worldNormal.y + r2z * worldNormal.z,
     }),
   };
+}
+
+// World direction of the solid's lightness axis. A level cut uses this as
+// its normal, so the blade stays in the a–b plane.
+export function levelCutNormal(elements) {
+  const scale = columnScale(elements);
+  return normalize({
+    x: elements[4] / scale,
+    y: elements[5] / scale,
+    z: elements[6] / scale,
+  });
 }
 
 export function worldCutFromLocal(localPoint, localNormal, elements) {

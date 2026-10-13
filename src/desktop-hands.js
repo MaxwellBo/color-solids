@@ -18,6 +18,7 @@ export function handPose(hand) {
 // The clickable stand-ins emit the same events a Quest controller emits.
 export const DESKTOP_BUTTONS = [
   { id: 'btn-a', down: 'abuttondown', up: 'abuttonup' },
+  { id: 'btn-b', down: 'bbuttondown', up: 'bbuttonup' },
   { id: 'btn-grip', down: 'gripdown', up: 'gripup' },
   { id: 'btn-trigger', down: 'triggerdown', up: 'triggerup' },
 ];

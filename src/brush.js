@@ -6,6 +6,12 @@ import { worldToLab } from './scale.js';
 const PICK_EPSILON = 1.5e-3;
 export const STROKE_RADIUS = 0.01;
 
+// World-space pick marker. The solid is hand-scaled, so the ring stays a
+// small point on the color rather than a disc across the cut.
+export const PICK_FILL_RADIUS = 0.01;
+export const PICK_RING_INNER = 0.012;
+export const PICK_RING_OUTER = 0.016;
+
 export function colorAtLocalPoint(x, y, z) {
   const lab = worldToLab(x, y, z);
   const rgb = oklabToLinearSrgb(lab.L, lab.a, lab.b);
