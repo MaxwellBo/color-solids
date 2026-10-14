@@ -25,7 +25,7 @@ import {
 import { installScenePassthrough } from './passthrough.js';
 import { EXHIBIT_VERSION } from './version.js';
 import { DESKTOP_BUTTONS } from './desktop-hands.js';
-import { bindDesktopControls } from './controllers.js';
+import './controllers.js';
 import './lighting.js';
 
 const THREE = AFRAME.THREE;
@@ -1293,7 +1293,6 @@ function bindHud() {
         ? 'The top of the solid is cut away at this lightness.'
         : 'The complete sRGB surface, with no cut.';
   });
-  bindDesktopControls();
   scene.addEventListener('solid-held', (event) => {
     if (event.detail.held) status.textContent = 'The solid sits on the left controller.';
   });
