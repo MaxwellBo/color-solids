@@ -159,6 +159,17 @@ function activateControl(control) {
   hand.emit('thumbstickmoved', sticks[stick.hand]);
 }
 
+// The side panel presses the same widgets the meshes do.
+export function activateDesktopControl(id) {
+  const control = controlById.get(id);
+  if (control) activateControl(control);
+}
+
+export function desktopControlPressed(id) {
+  const control = controlById.get(id);
+  return Boolean(control && control.pressed);
+}
+
 function registerControl(control) {
   control.group.userData.control = control;
   controlById.set(control.id, control);

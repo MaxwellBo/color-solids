@@ -26,6 +26,7 @@ import { installScenePassthrough } from './passthrough.js';
 import { EXHIBIT_VERSION } from './version.js';
 import { DESKTOP_BUTTONS } from './desktop-hands.js';
 import './controllers.js';
+import { bindSidePanel } from './side-panel.js';
 import './lighting.js';
 
 const THREE = AFRAME.THREE;
@@ -1320,3 +1321,4 @@ if (exhibit && exhibit.content) {
 }
 
 bindHud();
+bindSidePanel();

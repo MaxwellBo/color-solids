@@ -83,9 +83,57 @@
         padding-left: 18px;
       }
       li + li { margin-top: 2px; }
+      #controls {
+        position: fixed;
+        z-index: 10;
+        top: 18px;
+        right: 18px;
+        bottom: 88px;
+        width: min(280px, calc(100vw - 36px));
+        overflow: auto;
+        padding: 16px 16px 8px;
+        border-radius: 16px;
+        background: rgba(12, 14, 18, 0.78);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        backdrop-filter: blur(10px);
+      }
+      #controls[hidden] { display: none; }
+      #controls h2 {
+        margin: 0 0 8px;
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+      }
+      #controls h3 {
+        margin: 2px 0 8px;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #c9c3b8;
+      }
+      #controls .lede {
+        margin: 0 0 14px;
+        color: #c9c3b8;
+        font-size: 13.5px;
+        line-height: 1.45;
+      }
+      #controls section + section {
+        margin-top: 4px;
+        padding-top: 12px;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+      }
+      #controls .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin: 0 0 12px;
+      }
       @media (max-height: 720px) {
         #hud { top: 10px; padding: 12px; }
         #hud .lede, #hud ul { display: none; }
+        #controls { top: 10px; bottom: 72px; padding: 12px 12px 4px; }
+        #controls .lede { display: none; }
       }
     </style>
   </head>
@@ -145,7 +193,11 @@
         <li>Drag a pale knob to move that hand. Right-drag, or shift-drag, to aim it. Drag empty space to orbit, and scroll to zoom</li>
         <li>Colored bars stick out of each controller along the axis they move. Rings around it turn it: red pitches, green yaws, blue rolls</li>
         <li>A and B sit on those buttons. Paint is the trigger, Pick is the grip. Arrows around the left stick walk, and arcs around the right stick turn</li>
+        <li>The panel on the right has the same six axes and buttons</li>
       </ul>
+    </aside>
+    <aside id="controls" aria-label="Controller controls">
+      <p class="lede">The same axes and buttons as the handles on each controller.</p>
     </aside>
   </body>
 </html>
