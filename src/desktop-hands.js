@@ -21,12 +21,69 @@ export function handPose(hand) {
 }
 
 // The clickable stand-ins emit the same events a Quest controller emits.
+// Toggles stand in for holding the button down.
 export const DESKTOP_BUTTONS = [
-  { id: 'btn-a', down: 'abuttondown', up: 'abuttonup' },
-  { id: 'btn-b', down: 'bbuttondown', up: 'bbuttonup' },
-  { id: 'btn-grip', down: 'gripdown', up: 'gripup' },
-  { id: 'btn-trigger', down: 'triggerdown', up: 'triggerup' },
+  { id: 'btn-a', hand: 'right', down: 'abuttondown', up: 'abuttonup' },
+  { id: 'btn-b', hand: 'right', down: 'bbuttondown', up: 'bbuttonup' },
+  { id: 'btn-grip', hand: 'right', down: 'gripdown', up: 'gripup' },
+  { id: 'btn-trigger', hand: 'right', down: 'triggerdown', up: 'triggerup' },
 ];
+
+// Left stick walks. Right stick flicks sideways to snap-turn. Positive x is
+// right, positive y is forward, matching the headset handlers.
+export const STICK_CONTROLS = [
+  { id: 'btn-walk-forward', hand: 'left', axis: 'y', value: 1 },
+  { id: 'btn-walk-back', hand: 'left', axis: 'y', value: -1 },
+  { id: 'btn-walk-left', hand: 'left', axis: 'x', value: -1 },
+  { id: 'btn-walk-right', hand: 'left', axis: 'x', value: 1 },
+  { id: 'btn-turn-left', hand: 'right', flick: -1 },
+  { id: 'btn-turn-right', hand: 'right', flick: 1 },
+];
+
+export function togglePress(pressed) {
+  const next = !pressed;
+  return { pressed: next, event: next ? 'down' : 'up' };
+}
+
+// A walk toggle replaces that stick axis. Releasing it clears the axis only
+// when it still holds this toggle's value.
+export function applyStickToggle(axes, axis, value, on) {
+  const next = { x: axes.x, y: axes.y };
+  if (on) next[axis] = value;
+  else if (next[axis] === value) next[axis] = 0;
+  return next;
+}
+
+// Local position in metres and YXZ rotation in degrees, the six axes of a hand.
+export const POSE_AXES = [
+  { key: 'x', min: -2, max: 2, step: 0.01 },
+  { key: 'y', min: 0, max: 3, step: 0.01 },
+  { key: 'z', min: -2, max: 2, step: 0.01 },
+  { key: 'pitch', min: -180, max: 180, step: 1 },
+  { key: 'yaw', min: -180, max: 180, step: 1 },
+  { key: 'roll', min: -180, max: 180, step: 1 },
+];
+
+const DEG = 180 / Math.PI;
+
+export function readHandAxes(position, euler) {
+  return {
+    x: position.x,
+    y: position.y,
+    z: position.z,
+    pitch: euler.x * DEG,
+    yaw: euler.y * DEG,
+    roll: euler.z * DEG,
+  };
+}
+
+export function handAxesToPose(axes) {
+  const rad = Math.PI / 180;
+  return {
+    position: { x: axes.x, y: axes.y, z: axes.z },
+    rotation: { x: axes.pitch * rad, y: axes.yaw * rad, z: axes.roll * rad },
+  };
+}
 
 // Where a ray meets a plane. Null when the ray is parallel or points away.
 export function rayPlanePoint(origin, direction, planePoint, planeNormal) {
