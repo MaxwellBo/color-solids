@@ -68,11 +68,29 @@
       }
       button:hover { background: rgba(255, 255, 255, 0.06); }
       button[aria-pressed="true"] { background: rgba(255, 255, 255, 0.16); }
-      #hand-controls {
+      #hud { max-height: calc(100vh - 36px); overflow: auto; }
+      .hand-block { margin: 10px 0 4px; }
+      .hand-block h2 {
+        margin: 0 0 6px;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #c9c3b8;
+      }
+      .axes {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 2px 8px;
+        margin-bottom: 6px;
+      }
+      .axes label { display: block; font-size: 11px; }
+      .axes input[type="range"] { margin: 0; }
+      #hand-controls, .stick-controls {
         display: flex;
         flex-wrap: wrap;
         gap: 8px;
-        margin: 4px 0 12px;
+        margin: 4px 0 8px;
       }
       #brush-swatch {
         display: inline-block;
@@ -146,17 +164,46 @@
         <button id="mode" type="button">Full solid</button>
       </div>
       <p id="status">The solid sits on the left controller.</p>
-      <div id="hand-controls">
-        <button id="btn-a" type="button" aria-pressed="false" title="Hold to slice with the controller tilt">A</button>
-        <button id="btn-b" type="button" aria-pressed="false" title="Hold for a cut flat in a and b">B</button>
-        <button id="btn-grip" type="button" aria-pressed="false" title="Hold to pick">Back trigger</button>
-        <button id="btn-trigger" type="button" aria-pressed="false" title="Hold to paint">Trigger</button>
-      </div>
+      <section class="hand-block">
+        <h2>Left controller</h2>
+        <div class="axes">
+          <label>X<input id="left-x" type="range" min="-2" max="2" step="0.01" data-hand="left" data-axis="x"></label>
+          <label>Y<input id="left-y" type="range" min="0" max="3" step="0.01" data-hand="left" data-axis="y"></label>
+          <label>Z<input id="left-z" type="range" min="-2" max="2" step="0.01" data-hand="left" data-axis="z"></label>
+          <label>Pitch<input id="left-pitch" type="range" min="-180" max="180" step="1" data-hand="left" data-axis="pitch"></label>
+          <label>Yaw<input id="left-yaw" type="range" min="-180" max="180" step="1" data-hand="left" data-axis="yaw"></label>
+          <label>Roll<input id="left-roll" type="range" min="-180" max="180" step="1" data-hand="left" data-axis="roll"></label>
+        </div>
+        <div class="stick-controls">
+          <button id="btn-walk-forward" type="button" aria-pressed="false" title="Hold the left stick forward">Forward</button>
+          <button id="btn-walk-back" type="button" aria-pressed="false" title="Hold the left stick back">Back</button>
+          <button id="btn-walk-left" type="button" aria-pressed="false" title="Hold the left stick left">Left</button>
+          <button id="btn-walk-right" type="button" aria-pressed="false" title="Hold the left stick right">Right</button>
+        </div>
+      </section>
+      <section class="hand-block">
+        <h2>Right controller</h2>
+        <div class="axes">
+          <label>X<input id="right-x" type="range" min="-2" max="2" step="0.01" data-hand="right" data-axis="x"></label>
+          <label>Y<input id="right-y" type="range" min="0" max="3" step="0.01" data-hand="right" data-axis="y"></label>
+          <label>Z<input id="right-z" type="range" min="-2" max="2" step="0.01" data-hand="right" data-axis="z"></label>
+          <label>Pitch<input id="right-pitch" type="range" min="-180" max="180" step="1" data-hand="right" data-axis="pitch"></label>
+          <label>Yaw<input id="right-yaw" type="range" min="-180" max="180" step="1" data-hand="right" data-axis="yaw"></label>
+          <label>Roll<input id="right-roll" type="range" min="-180" max="180" step="1" data-hand="right" data-axis="roll"></label>
+        </div>
+        <div id="hand-controls">
+          <button id="btn-a" type="button" aria-pressed="false" title="Toggle the A button: slice along the pointer">A</button>
+          <button id="btn-b" type="button" aria-pressed="false" title="Toggle the B button: slice flat in a and b">B</button>
+          <button id="btn-grip" type="button" aria-pressed="false" title="Toggle the back trigger: pick">Back trigger</button>
+          <button id="btn-trigger" type="button" aria-pressed="false" title="Toggle the trigger: paint">Trigger</button>
+          <button id="btn-turn-left" type="button" title="Flick the right stick left">Turn left</button>
+          <button id="btn-turn-right" type="button" title="Flick the right stick right">Turn right</button>
+        </div>
+      </section>
       <p>Brush <span id="brush-swatch"></span><output id="brush-value">none yet</output></p>
       <ul>
-        <li>Drag a controller by its pale knob to move it. Right-drag, or shift-drag, to aim it. Drag empty space to orbit, scroll to zoom, R resets the view</li>
-        <li>The buttons stand in for the right controller. Hold A to slice with its tilt, B for a cut that stays flat in a and b, the back trigger to pick, and the trigger to paint. In a headset those are the real buttons, and the room shows through</li>
-        <li>The left stick walks. Flick the right stick sideways to turn.</li>
+        <li>Each controller has position and rotation sliders. Drag a pale knob to move that hand. Right-drag, or shift-drag, to aim it. Drag empty space to orbit</li>
+        <li>The buttons toggle the same controls as the headset. A slices along the pointer, B slices flat in a and b, the back trigger picks, and the trigger paints. Forward, back, left, and right hold the left stick. Turn flicks the right stick</li>
       </ul>
     </aside>
   </body>

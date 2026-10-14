@@ -4,11 +4,17 @@ import * as THREE from 'three';
 import { bladeNormal, heldPoint } from './hand.js';
 import { labToWorld, VIEW_TARGET } from './scale.js';
 import {
+  applyStickToggle,
   DESKTOP_BUTTONS,
+  handAxesToPose,
   LEFT_HAND_POSE,
   POINT_DIRECTION,
+  POSE_AXES,
+  readHandAxes,
   RIGHT_HAND_POSE,
   rayPlanePoint,
+  STICK_CONTROLS,
+  togglePress,
 } from './desktop-hands.js';
 
 function place(pose) {
@@ -68,4 +74,34 @@ test('desktop buttons emit the quest controller events', () => {
     DESKTOP_BUTTONS.map((button) => button.up),
     ['abuttonup', 'bbuttonup', 'gripup', 'triggerup'],
   );
+  assert.deepEqual(togglePress(false), { pressed: true, event: 'down' });
+  assert.deepEqual(togglePress(true), { pressed: false, event: 'up' });
+});
+
+test('walk toggles share the headset stick axes, and a turn is a sideways flick', () => {
+  let axes = { x: 0, y: 0 };
+  axes = applyStickToggle(axes, 'y', 1, true);
+  axes = applyStickToggle(axes, 'x', -1, true);
+  assert.deepEqual(axes, { x: -1, y: 1 });
+  axes = applyStickToggle(axes, 'y', -1, true);
+  assert.deepEqual(axes, { x: -1, y: -1 });
+  axes = applyStickToggle(axes, 'y', 1, false);
+  assert.deepEqual(axes, { x: -1, y: -1 });
+  axes = applyStickToggle(axes, 'y', -1, false);
+  assert.deepEqual(axes, { x: -1, y: 0 });
+  assert.deepEqual(STICK_CONTROLS.filter((control) => control.flick).map((control) => control.flick), [-1, 1]);
+});
+
+test('each controller has six pose axes and they round-trip', () => {
+  assert.deepEqual(POSE_AXES.map((axis) => axis.key), ['x', 'y', 'z', 'pitch', 'yaw', 'roll']);
+  const axes = readHandAxes(
+    { x: -0.2, y: 1.4, z: 0.5 },
+    { x: Math.PI / 2, y: -Math.PI / 4, z: 0.1 },
+  );
+  const pose = handAxesToPose(axes);
+  assert.ok(Math.abs(pose.position.x + 0.2) < 1e-9);
+  assert.ok(Math.abs(pose.position.y - 1.4) < 1e-9);
+  assert.ok(Math.abs(pose.rotation.x - Math.PI / 2) < 1e-9);
+  assert.ok(Math.abs(pose.rotation.y + Math.PI / 4) < 1e-9);
+  assert.ok(Math.abs(pose.rotation.z - 0.1) < 1e-9);
 });

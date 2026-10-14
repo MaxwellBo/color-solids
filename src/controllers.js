@@ -1,4 +1,14 @@
-import { DESKTOP_BUTTONS, handPose, rayPlanePoint } from './desktop-hands.js';
+import {
+  applyStickToggle,
+  DESKTOP_BUTTONS,
+  handAxesToPose,
+  handPose,
+  POSE_AXES,
+  rayPlanePoint,
+  readHandAxes,
+  STICK_CONTROLS,
+  togglePress,
+} from './desktop-hands.js';
 import { prepareControllerMaterials } from './lighting.js';
 
 const THREE = AFRAME.THREE;
@@ -266,31 +276,90 @@ AFRAME.registerComponent('desktop-rig', {
     if (canvas) canvas.style.cursor = 'grab';
   },
 
+  tick() {
+    if (sceneInHeadset(this.el.sceneEl)) return;
+    syncPoseSliders();
+  },
+
   remove() {
     this.pause();
   },
 });
 
-export function bindDesktopButtons(hand) {
+function handEntity(name) {
+  return document.getElementById(name === 'left' ? 'left-hand' : 'right-hand');
+}
+
+function syncPoseSliders() {
+  for (const name of ['left', 'right']) {
+    const hand = handEntity(name);
+    if (!hand || !hand.object3D) continue;
+    const axes = readHandAxes(hand.object3D.position, hand.object3D.rotation);
+    for (const axis of POSE_AXES) {
+      const input = document.getElementById(`${name}-${axis.key}`);
+      if (!input || document.activeElement === input) continue;
+      const steps = Math.round(axes[axis.key] / axis.step);
+      input.value = String(steps * axis.step);
+    }
+  }
+}
+
+function applyPoseSlider(input) {
+  const hand = handEntity(input.dataset.hand);
+  if (!hand || !hand.object3D || sceneInHeadset(hand.sceneEl)) return;
+  const axes = readHandAxes(hand.object3D.position, hand.object3D.rotation);
+  axes[input.dataset.axis] = Number(input.value);
+  const pose = handAxesToPose(axes);
+  hand.object3D.position.set(pose.position.x, pose.position.y, pose.position.z);
+  hand.object3D.rotation.set(pose.rotation.x, pose.rotation.y, pose.rotation.z);
+}
+
+export function bindDesktopControls() {
   for (const button of DESKTOP_BUTTONS) {
     const element = document.getElementById(button.id);
+    const hand = handEntity(button.hand);
     if (!element || !hand) continue;
-    const press = (event) => {
-      if (event.button !== 0) return;
+    element.addEventListener('click', (event) => {
       if (sceneInHeadset(hand.sceneEl)) return;
       event.preventDefault();
-      element.setPointerCapture(event.pointerId);
-      element.setAttribute('aria-pressed', 'true');
-      hand.emit(button.down);
-    };
-    const release = (event) => {
-      if (element.getAttribute('aria-pressed') !== 'true') return;
-      element.setAttribute('aria-pressed', 'false');
-      hand.emit(button.up);
-      if (element.hasPointerCapture(event.pointerId)) element.releasePointerCapture(event.pointerId);
-    };
-    element.addEventListener('pointerdown', press);
-    element.addEventListener('pointerup', release);
-    element.addEventListener('pointercancel', release);
+      const next = togglePress(element.getAttribute('aria-pressed') === 'true');
+      element.setAttribute('aria-pressed', String(next.pressed));
+      hand.emit(next.event === 'down' ? button.down : button.up);
+    });
+  }
+
+  const sticks = { left: { x: 0, y: 0 }, right: { x: 0, y: 0 } };
+  for (const control of STICK_CONTROLS) {
+    const element = document.getElementById(control.id);
+    const hand = handEntity(control.hand);
+    if (!element || !hand) continue;
+    element.addEventListener('click', (event) => {
+      if (sceneInHeadset(hand.sceneEl)) return;
+      event.preventDefault();
+      if (control.flick) {
+        hand.emit('thumbstickmoved', { x: control.flick, y: 0 });
+        hand.emit('thumbstickmoved', { x: 0, y: 0 });
+        return;
+      }
+      const on = element.getAttribute('aria-pressed') !== 'true';
+      sticks[control.hand] = applyStickToggle(sticks[control.hand], control.axis, control.value, on);
+      element.setAttribute('aria-pressed', String(on));
+      if (on) {
+        for (const other of STICK_CONTROLS) {
+          if (other === control || other.hand !== control.hand || other.axis !== control.axis) continue;
+          const node = document.getElementById(other.id);
+          if (node) node.setAttribute('aria-pressed', 'false');
+        }
+      }
+      hand.emit('thumbstickmoved', sticks[control.hand]);
+    });
+  }
+
+  for (const name of ['left', 'right']) {
+    for (const axis of POSE_AXES) {
+      const input = document.getElementById(`${name}-${axis.key}`);
+      if (!input) continue;
+      input.addEventListener('input', () => applyPoseSlider(input));
+    }
   }
 }

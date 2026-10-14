@@ -25,7 +25,7 @@ import {
 import { installScenePassthrough } from './passthrough.js';
 import { EXHIBIT_VERSION } from './version.js';
 import { DESKTOP_BUTTONS } from './desktop-hands.js';
-import { bindDesktopButtons } from './controllers.js';
+import { bindDesktopControls } from './controllers.js';
 import './lighting.js';
 
 const THREE = AFRAME.THREE;
@@ -806,7 +806,6 @@ AFRAME.registerComponent('locomotion', {
     });
   },
   tick(_time, deltaMs) {
-    if (!sceneInHeadset(this.el.sceneEl)) return;
     if (Math.abs(this.axisX) < 0.18 && Math.abs(this.axisY) < 0.18) return;
     const camera = this.el.sceneEl.camera;
     camera.getWorldDirection(this.forward);
@@ -830,7 +829,6 @@ AFRAME.registerComponent('turn-stick', {
   init() {
     this.turned = false;
     this.el.addEventListener('thumbstickmoved', (event) => {
-      if (!sceneInHeadset(this.el.sceneEl)) return;
       const x = event.detail.x;
       const y = event.detail.y;
       if (Math.abs(x) > Math.abs(y) && Math.abs(x) > 0.75) {
@@ -1295,7 +1293,7 @@ function bindHud() {
         ? 'The top of the solid is cut away at this lightness.'
         : 'The complete sRGB surface, with no cut.';
   });
-  bindDesktopButtons(document.getElementById('right-hand'));
+  bindDesktopControls();
   scene.addEventListener('solid-held', (event) => {
     if (event.detail.held) status.textContent = 'The solid sits on the left controller.';
   });
