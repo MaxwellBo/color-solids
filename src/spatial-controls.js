@@ -11,26 +11,27 @@ export const MOVE_AXES = [
 ];
 
 // Pitch, yaw, and roll are the YXZ euler components, matching A-Frame.
+// The three rings share one center so a ring seen edge-on still reads as
+// part of the gimbal instead of a stray bar.
 export const ROTATE_AXES = [
-  { key: 'pitch', component: 'x', axis: { x: 1, y: 0, z: 0 }, radius: 0.07, offset: { x: -0.18, y: 0, z: 0 }, color: 0xe24b4b, label: 'Pitch' },
-  { key: 'yaw', component: 'y', axis: { x: 0, y: 1, z: 0 }, radius: 0.07, offset: { x: 0, y: 0, z: 0 }, color: 0x3cba6c, label: 'Yaw' },
-  { key: 'roll', component: 'z', axis: { x: 0, y: 0, z: 1 }, radius: 0.07, offset: { x: 0.18, y: 0, z: 0 }, color: 0x3d7ee0, label: 'Roll' },
+  { key: 'pitch', component: 'x', axis: { x: 1, y: 0, z: 0 }, radius: 0.042, color: 0xe24b4b, label: 'Pitch' },
+  { key: 'yaw', component: 'y', axis: { x: 0, y: 1, z: 0 }, radius: 0.058, color: 0x3cba6c, label: 'Yaw' },
+  { key: 'roll', component: 'z', axis: { x: 0, y: 0, z: 1 }, radius: 0.074, color: 0x3d7ee0, label: 'Roll' },
 ];
 
 // World-space offset from the hand to its move/rotate cluster.
 export const CLUSTER_OFFSET = {
-  left: { x: -0.28, y: 0.05, z: 0.08 },
-  right: { x: 0.2, y: 0.2, z: -0.02 },
+  left: { x: -0.18, y: 0.04, z: 0.02 },
+  right: { x: 0.18, y: 0.06, z: 0 },
 };
 
-// Inside the world-aligned cluster. Rings sit off the arrows. The pad sits
-// beside the arrows so it stays in the desktop frame.
-export const GIMBAL_OFFSET = { x: 0, y: 0.22, z: 0 };
+// Rings share a center just above the arrows. Pads sit beside that gizmo.
+export const GIMBAL_OFFSET = { x: 0, y: 0.17, z: 0 };
 export const PAD_OFFSET = {
-  left: { x: 0.02, y: 0.02, z: 0.16 },
+  left: { x: -0.12, y: 0, z: 0.02 },
   right: { x: 0.16, y: 0.02, z: 0.02 },
 };
-export const BAR_LENGTH = 0.13;
+export const BAR_LENGTH = 0.08;
 
 // Proxy-local. The face looks up at the desktop camera when the pointer aims
 // at the solid. The tip runs along that pointer.
@@ -127,15 +128,15 @@ export function yawSweep(flick) {
 // are proxy-local metres. The left controller's actions live on its cluster.
 export function surfaceWidgets(hand) {
   if (hand !== 'right') return [];
-  const lift = 0.014;
-  // The controller points toward the desktop camera, so sliding along the
-  // tip barely separates the buttons on screen. Nudge them across the face
-  // as well, keeping each one beside the Quest control it stands in for.
+  const lift = 0.007;
+  // B and the trigger sit one behind the other along the pointer, so on screen
+  // they stack. A small shift across the face keeps each disc on its button
+  // and gives the click a distinct target.
   const across = { x: 1, y: 0, z: 0 };
   return [
-    { id: 'btn-a', label: 'A', color: 0xf4f0e8, radius: 0.008, position: add(add(SURFACE.a, FACE_NORMAL, lift), across, -0.018), direction: FACE_NORMAL },
-    { id: 'btn-b', label: 'B', color: 0xd9d3c7, radius: 0.008, position: add(add(SURFACE.b, FACE_NORMAL, lift), across, 0.012), direction: FACE_NORMAL },
-    { id: 'btn-trigger', label: 'Paint', color: 0x9ec2ff, radius: 0.009, position: add(add(SURFACE.trigger, FACE_NORMAL, lift), across, 0.028), direction: FACE_NORMAL },
-    { id: 'btn-grip', label: 'Pick', color: 0xf7f7f7, radius: 0.009, position: add(add(SURFACE.grip, FACE_NORMAL, lift), across, -0.022), direction: FACE_NORMAL },
+    { id: 'btn-a', label: 'A', color: 0xf4f0e8, radius: 0.0065, position: add(SURFACE.a, FACE_NORMAL, lift), direction: FACE_NORMAL },
+    { id: 'btn-b', label: 'B', color: 0xd9d3c7, radius: 0.0065, position: add(add(SURFACE.b, FACE_NORMAL, lift), across, -0.014), direction: FACE_NORMAL },
+    { id: 'btn-trigger', label: 'Paint', color: 0x9ec2ff, radius: 0.008, position: add(add(SURFACE.trigger, FACE_NORMAL, 0.009), across, 0.014), direction: FACE_NORMAL },
+    { id: 'btn-grip', label: 'Pick', color: 0xf7f7f7, radius: 0.0075, position: add(SURFACE.grip, FACE_NORMAL, 0.008), direction: FACE_NORMAL },
   ];
 }

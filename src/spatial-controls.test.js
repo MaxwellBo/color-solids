@@ -27,6 +27,9 @@ test('move bars follow world axes and rings follow the hand euler', () => {
     ['yaw', 'y'],
     ['roll', 'z'],
   ]);
+  assert.equal(ROTATE_AXES.some((axis) => axis.offset), false);
+  assert.ok(ROTATE_AXES[0].radius < ROTATE_AXES[1].radius);
+  assert.ok(ROTATE_AXES[1].radius < ROTATE_AXES[2].radius);
   assert.ok(CLUSTER_OFFSET.left.x < 0);
   assert.ok(CLUSTER_OFFSET.right.x > 0);
 });

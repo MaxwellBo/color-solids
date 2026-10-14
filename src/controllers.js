@@ -20,7 +20,6 @@ import {
   signedAngleAround,
   surfaceWidgets,
   travelDirection,
-  yawSweep,
 } from './spatial-controls.js';
 
 const THREE = AFRAME.THREE;
@@ -75,13 +74,13 @@ function basicMaterial(color) {
   return new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide });
 }
 
-function labelSprite(text, scale = 0.05) {
+function labelSprite(text, scale = 0.05, color = '#f7f4ee') {
   const canvas = document.createElement('canvas');
   canvas.width = 256;
   canvas.height = 128;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = '#f7f4ee';
+  ctx.fillStyle = color;
   ctx.font = '700 64px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -91,6 +90,7 @@ function labelSprite(text, scale = 0.05) {
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map, transparent: true, depthTest: false }));
   sprite.scale.set(scale, scale * 0.5, 1);
   sprite.renderOrder = 4;
+  sprite.raycast = () => {};
   return sprite;
 }
 
@@ -172,6 +172,7 @@ AFRAME.registerComponent('controller-proxy', {
     this.proxy = buildStandIn();
     this.el.object3D.add(this.proxy);
     this.controls = [];
+    this.ringLabels = [];
     this.buildSurface();
     this.buildCluster();
     this.loadControllerModel();
@@ -180,6 +181,8 @@ AFRAME.registerComponent('controller-proxy', {
     this.frozenPos = new THREE.Vector3();
     this.forward = new THREE.Vector3();
     this.right = new THREE.Vector3();
+    this.camPos = new THREE.Vector3();
+    this.labelScratch = new THREE.Vector3();
     this.restoreFrames = 0;
     this.posed = false;
     this.heldRing = null;
@@ -264,14 +267,15 @@ AFRAME.registerComponent('controller-proxy', {
   buildSurface() {
     for (const widget of surfaceWidgets(this.data.hand)) {
       const material = basicMaterial(widget.color);
-      material.depthTest = false;
+      material.polygonOffset = true;
+      material.polygonOffsetFactor = -2;
+      material.polygonOffsetUnits = -2;
       const group = new THREE.Group();
-      group.renderOrder = 5;
       group.name = 'surface-control';
       group.position.set(widget.position.x, widget.position.y, widget.position.z);
       group.quaternion.setFromUnitVectors(Y_AXIS, new THREE.Vector3(widget.direction.x, widget.direction.y, widget.direction.z).normalize());
       const disc = new THREE.Mesh(new THREE.CylinderGeometry(widget.radius, widget.radius, 0.004, 22), material);
-      const label = labelSprite(widget.label, 0.03);
+      const label = labelSprite(widget.label, 0.024);
       label.position.y = 0.01;
       group.add(disc, label);
       this.proxy.add(group);
@@ -306,7 +310,7 @@ AFRAME.registerComponent('controller-proxy', {
 
     for (const axis of MOVE_AXES) {
       const material = basicMaterial(axis.color);
-      const group = arrowMesh(BAR_LENGTH, 0.016, material);
+      const group = arrowMesh(BAR_LENGTH, 0.012, material);
       group.quaternion.setFromUnitVectors(Y_AXIS, new THREE.Vector3(axis.direction.x, axis.direction.y, axis.direction.z));
       const label = labelSprite(axis.label, 0.045);
       label.position.y = BAR_LENGTH + 0.02;
@@ -330,17 +334,36 @@ AFRAME.registerComponent('controller-proxy', {
     this.gimbal = new THREE.Group();
     this.gimbal.position.set(GIMBAL_OFFSET.x, GIMBAL_OFFSET.y, GIMBAL_OFFSET.z);
     this.cluster.add(this.gimbal);
+    const link = new THREE.Mesh(new THREE.CylinderGeometry(0.0016, 0.0016, 1, 6), stemMaterial);
+    link.raycast = () => {};
+    link.position.y = GIMBAL_OFFSET.y / 2;
+    link.scale.y = GIMBAL_OFFSET.y;
+    this.cluster.add(link);
     for (const axis of ROTATE_AXES) {
       const material = basicMaterial(axis.color);
       const group = new THREE.Group();
-      group.position.set(axis.offset.x, axis.offset.y, axis.offset.z);
-      group.userData.home = { x: axis.offset.x, y: axis.offset.y, z: axis.offset.z };
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(axis.radius, 0.01, 12, 40), material);
+      group.userData.home = { x: 0, y: 0, z: 0 };
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(axis.radius, 0.0055, 12, 48), material);
       ring.quaternion.setFromUnitVectors(Z_AXIS, new THREE.Vector3(axis.axis.x, axis.axis.y, axis.axis.z));
-      const label = labelSprite(axis.label, 0.055);
-      label.position.set(axis.radius + 0.025, 0, 0);
+      // Spread the arrowheads so the three rings don't stack their tips.
+      const headAngle = axis.component === 'x' ? 0.6 : axis.component === 'y' ? 2.4 : 4.2;
+      const head = new THREE.Mesh(new THREE.ConeGeometry(0.01, 0.018, 8), material);
+      head.position.set(Math.cos(headAngle) * axis.radius, Math.sin(headAngle) * axis.radius, 0);
+      head.quaternion.setFromUnitVectors(
+        Y_AXIS,
+        new THREE.Vector3(-Math.sin(headAngle), Math.cos(headAngle), 0),
+      );
+      ring.add(head);
+      const labelColor = axis.component === 'x' ? '#e24b4b' : axis.component === 'y' ? '#3cba6c' : '#3d7ee0';
+      const label = labelSprite(axis.label, 0.04, labelColor);
       ring.add(label);
       group.add(ring);
+      this.ringLabels.push({
+        ring,
+        label,
+        radius: axis.radius + 0.018,
+        prefer: axis.component === 'x' ? 'left' : axis.component === 'y' ? 'up' : 'right',
+      });
       this.gimbal.add(group);
       this.controls.push(registerControl({
         id: `${hand}-${axis.key}`,
@@ -362,9 +385,11 @@ AFRAME.registerComponent('controller-proxy', {
     const padOffset = PAD_OFFSET[hand];
     this.pad.position.set(padOffset.x, padOffset.y, padOffset.z);
     this.cluster.add(this.pad);
-    const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.003, 28), basicMaterial(0x2a3038));
-    pad.raycast = () => {};
-    this.pad.add(pad);
+    if (hand === 'left') {
+      const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.002, 24), basicMaterial(0x2a3038));
+      pad.raycast = () => {};
+      this.pad.add(pad);
+    }
 
     if (hand === 'left') this.buildWalkPad();
     else this.buildTurnPad();
@@ -375,7 +400,7 @@ AFRAME.registerComponent('controller-proxy', {
     for (const control of STICK_CONTROLS) {
       if (control.hand !== 'left' || control.flick) continue;
       const material = basicMaterial(0xf4f0e8);
-      const group = arrowMesh(0.07, 0.016, material);
+      const group = arrowMesh(0.055, 0.011, material);
       this.pad.add(group);
       const widget = registerControl({
         id: control.id,
@@ -398,17 +423,17 @@ AFRAME.registerComponent('controller-proxy', {
     for (const control of STICK_CONTROLS) {
       if (!control.flick) continue;
       const material = basicMaterial(0xf4f0e8);
-      const discMaterial = material.clone();
+      const discMaterial = basicMaterial(0x2c333c);
       discMaterial.transparent = true;
-      discMaterial.opacity = 0.22;
+      discMaterial.opacity = 0.92;
       discMaterial.depthWrite = false;
-      const group = yawArc(control.flick, material);
-      const disc = new THREE.Mesh(new THREE.CircleGeometry(0.062, 24), discMaterial);
+      const group = yawArc(control.flick, material, 0.02);
+      const disc = new THREE.Mesh(new THREE.CircleGeometry(0.032, 24), discMaterial);
       disc.rotation.x = -Math.PI / 2;
       group.add(disc);
-      group.position.x = control.flick > 0 ? 0.1 : -0.1;
-      const label = labelSprite(control.flick > 0 ? 'Turn R' : 'Turn L', 0.05);
-      label.position.y = 0.03;
+      group.position.x = control.flick > 0 ? 0.04 : -0.04;
+      const label = labelSprite(control.flick > 0 ? 'R' : 'L', 0.03);
+      label.position.y = 0.025;
       group.add(label);
       this.pad.add(group);
       this.controls.push(registerControl({
@@ -446,6 +471,46 @@ AFRAME.registerComponent('controller-proxy', {
       this.heldRing.quaternion.copy(hand.quaternion);
     }
     this.layoutWalk();
+    this.layoutTurn();
+    this.layoutRingLabels();
+  },
+
+  // Pitch, yaw, and roll share a center, so their names sit just outside the
+  // gimbal: pitch on the left, yaw above, roll on the right.
+  layoutRingLabels() {
+    const camera = this.el.sceneEl.camera;
+    if (!camera) return;
+    this.gimbal.updateWorldMatrix(true, true);
+    const center = this.gimbal.getWorldPosition(this.labelScratch).clone().project(camera);
+    for (const item of this.ringLabels) {
+      this.labelScratch.copy(center);
+      if (item.prefer === 'left') this.labelScratch.x -= 0.072;
+      else if (item.prefer === 'right') this.labelScratch.x += 0.072;
+      else this.labelScratch.y += 0.15;
+      this.labelScratch.unproject(camera);
+      item.ring.worldToLocal(this.labelScratch);
+      item.label.position.copy(this.labelScratch);
+    }
+  },
+
+  // The two turn discs face the camera and sit beside the gimbal, so they
+  // read as a left/right pair instead of flat marks on the floor.
+  layoutTurn() {
+    if (this.data.hand !== 'right') return;
+    const camera = this.el.sceneEl.camera;
+    if (!camera) return;
+    camera.getWorldDirection(this.forward);
+    this.right.setFromMatrixColumn(camera.matrixWorld, 0);
+    if (this.right.lengthSq() < 1e-6) return;
+    this.right.normalize();
+    const toward = this.forward.clone().negate();
+    this.pad.position.set(
+      GIMBAL_OFFSET.x + this.right.x * 0.14,
+      GIMBAL_OFFSET.y + this.right.y * 0.14,
+      GIMBAL_OFFSET.z + this.right.z * 0.14,
+    );
+    const zAxis = new THREE.Vector3().crossVectors(this.right, toward).normalize();
+    this.pad.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(this.right, toward, zAxis));
   },
 
   layoutWalk() {
@@ -496,21 +561,23 @@ AFRAME.registerComponent('controller-proxy', {
   },
 });
 
-function yawArc(flick, material) {
+function yawArc(flick, material, radius) {
   const group = new THREE.Group();
-  const radius = 0.05;
-  const sweep = yawSweep(flick) * Math.PI * 0.72;
-  const start = flick > 0 ? Math.PI * 0.85 : -Math.PI * 0.15;
+  // The disc faces the camera. On that face a negative sweep runs clockwise,
+  // which is a right turn.
+  const sweep = (flick > 0 ? -1 : 1) * Math.PI * 1.35;
+  const end = Math.PI * 0.5;
+  const start = end - sweep;
   const points = [];
-  const steps = 18;
+  const steps = 20;
   for (let i = 0; i <= steps; i += 1) {
     const angle = start + sweep * (i / steps);
     points.push(new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius));
   }
   const curve = new THREE.CatmullRomCurve3(points);
-  group.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 24, 0.0065, 6, false), material));
+  group.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 28, 0.0042, 6, false), material));
   const tangent = new THREE.Vector3().subVectors(points[points.length - 1], points[points.length - 2]).normalize();
-  const head = new THREE.Mesh(new THREE.ConeGeometry(0.016, 0.03, 10), material);
+  const head = new THREE.Mesh(new THREE.ConeGeometry(0.009, 0.016, 8), material);
   head.position.copy(points[points.length - 1]);
   head.quaternion.setFromUnitVectors(Y_AXIS, tangent);
   group.add(head);
