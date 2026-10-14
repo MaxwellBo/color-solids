@@ -108,7 +108,8 @@ function arrowMesh(length, radius, material) {
 
 function paintControl(control, pressed) {
   control.pressed = pressed;
-  control.material.color.setHex(pressed ? PRESSED_COLOR : control.color);
+  const color = pressed ? PRESSED_COLOR : control.color;
+  for (const material of control.materials) material.color.setHex(color);
   control.group.scale.setScalar(pressed ? 1.14 : 1);
 }
 
@@ -181,7 +182,7 @@ AFRAME.registerComponent('controller-proxy', {
     this.right = new THREE.Vector3();
     this.restoreFrames = 0;
     this.posed = false;
-    this.ringHeld = false;
+    this.heldRing = null;
 
     this.onEnterVR = () => {
       this.proxy.visible = false;
@@ -263,7 +264,9 @@ AFRAME.registerComponent('controller-proxy', {
   buildSurface() {
     for (const widget of surfaceWidgets(this.data.hand)) {
       const material = basicMaterial(widget.color);
+      material.depthTest = false;
       const group = new THREE.Group();
+      group.renderOrder = 5;
       group.name = 'surface-control';
       group.position.set(widget.position.x, widget.position.y, widget.position.z);
       group.quaternion.setFromUnitVectors(Y_AXIS, new THREE.Vector3(widget.direction.x, widget.direction.y, widget.direction.z).normalize());
@@ -279,6 +282,7 @@ AFRAME.registerComponent('controller-proxy', {
         pressed: false,
         color: widget.color,
         material,
+        materials: [material],
         group,
         owner: this,
       }));
@@ -317,6 +321,7 @@ AFRAME.registerComponent('controller-proxy', {
         pressed: false,
         color: axis.color,
         material,
+        materials: [material],
         group,
         owner: this,
       }));
@@ -328,10 +333,12 @@ AFRAME.registerComponent('controller-proxy', {
     for (const axis of ROTATE_AXES) {
       const material = basicMaterial(axis.color);
       const group = new THREE.Group();
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(axis.radius, 0.0075, 10, 32), material);
+      group.position.set(axis.offset.x, axis.offset.y, axis.offset.z);
+      group.userData.home = { x: axis.offset.x, y: axis.offset.y, z: axis.offset.z };
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(axis.radius, 0.01, 12, 40), material);
       ring.quaternion.setFromUnitVectors(Z_AXIS, new THREE.Vector3(axis.axis.x, axis.axis.y, axis.axis.z));
       const label = labelSprite(axis.label, 0.055);
-      label.position.set(axis.radius + 0.02, 0, 0);
+      label.position.set(axis.radius + 0.025, 0, 0);
       ring.add(label);
       group.add(ring);
       this.gimbal.add(group);
@@ -345,13 +352,15 @@ AFRAME.registerComponent('controller-proxy', {
         pressed: false,
         color: axis.color,
         material,
+        materials: [material],
         group,
         owner: this,
       }));
     }
 
     this.pad = new THREE.Group();
-    this.pad.position.set(PAD_OFFSET.x, PAD_OFFSET.y, PAD_OFFSET.z);
+    const padOffset = PAD_OFFSET[hand];
+    this.pad.position.set(padOffset.x, padOffset.y, padOffset.z);
     this.cluster.add(this.pad);
     const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.003, 28), basicMaterial(0x2a3038));
     pad.raycast = () => {};
@@ -376,6 +385,7 @@ AFRAME.registerComponent('controller-proxy', {
         pressed: false,
         color: 0xf4f0e8,
         material,
+        materials: [material],
         group,
         owner: this,
       });
@@ -388,8 +398,15 @@ AFRAME.registerComponent('controller-proxy', {
     for (const control of STICK_CONTROLS) {
       if (!control.flick) continue;
       const material = basicMaterial(0xf4f0e8);
+      const discMaterial = material.clone();
+      discMaterial.transparent = true;
+      discMaterial.opacity = 0.22;
+      discMaterial.depthWrite = false;
       const group = yawArc(control.flick, material);
-      group.position.x = control.flick > 0 ? 0.085 : -0.085;
+      const disc = new THREE.Mesh(new THREE.CircleGeometry(0.062, 24), discMaterial);
+      disc.rotation.x = -Math.PI / 2;
+      group.add(disc);
+      group.position.x = control.flick > 0 ? 0.1 : -0.1;
       const label = labelSprite(control.flick > 0 ? 'Turn R' : 'Turn L', 0.05);
       label.position.y = 0.03;
       group.add(label);
@@ -401,6 +418,7 @@ AFRAME.registerComponent('controller-proxy', {
         pressed: false,
         color: 0xf4f0e8,
         material,
+        materials: [material, discMaterial],
         group,
         owner: this,
       }));
@@ -421,12 +439,11 @@ AFRAME.registerComponent('controller-proxy', {
       this.stem.scale.set(1, span, 1);
       this.stem.visible = this.cluster.visible;
     }
-    if (this.ringHeld) {
-      this.gimbal.position.copy(this.frozenPos);
-      this.gimbal.quaternion.copy(hand.quaternion);
-    } else if (this.gimbal.parent === this.cluster) {
-      this.gimbal.position.set(GIMBAL_OFFSET.x, GIMBAL_OFFSET.y, GIMBAL_OFFSET.z);
-      this.gimbal.quaternion.copy(hand.quaternion);
+    this.gimbal.position.set(GIMBAL_OFFSET.x, GIMBAL_OFFSET.y, GIMBAL_OFFSET.z);
+    this.gimbal.quaternion.copy(hand.quaternion);
+    if (this.heldRing) {
+      this.heldRing.position.copy(this.frozenPos);
+      this.heldRing.quaternion.copy(hand.quaternion);
     }
     this.layoutWalk();
   },
@@ -452,16 +469,20 @@ AFRAME.registerComponent('controller-proxy', {
     }
   },
 
-  beginRingDrag() {
-    this.gimbal.getWorldPosition(this.frozenPos);
-    this.el.sceneEl.object3D.attach(this.gimbal);
-    this.ringHeld = true;
+  beginRingDrag(group) {
+    group.getWorldPosition(this.frozenPos);
+    this.el.sceneEl.object3D.attach(group);
+    this.heldRing = group;
   },
 
   endRingDrag() {
-    if (!this.ringHeld) return;
-    this.ringHeld = false;
-    this.cluster.attach(this.gimbal);
+    if (!this.heldRing) return;
+    const group = this.heldRing;
+    this.heldRing = null;
+    this.gimbal.attach(group);
+    const home = group.userData.home;
+    group.position.set(home.x, home.y, home.z);
+    group.quaternion.identity();
   },
 
   remove() {
@@ -569,22 +590,31 @@ AFRAME.registerComponent('desktop-rig', {
   },
 
   // A widget on a controller, or the controller itself when the solid is not
-  // in front of it. Decorative parts of a cluster are skipped.
+  // in front of it. Buttons win over the controller body they sit on. The
+  // solid still blocks a widget that is behind it.
   pick(event) {
     if (sceneInHeadset(this.el.sceneEl) || !this.setRay(event)) return null;
-    const targets = this.clusters().concat(this.proxies());
-    if (!targets.length) return null;
+    const proxies = this.proxies();
+    const clusters = this.clusters();
+    if (!proxies.length && !clusters.length) return null;
     const shell = this.shell();
-    if (shell) targets.push(shell);
-    const hits = this.raycaster.intersectObjects(targets, true);
-    for (const hit of hits) {
+    const shellHit = shell ? this.raycaster.intersectObject(shell, true)[0] : null;
+    const shellDistance = shellHit ? shellHit.distance : Infinity;
+    const widgetHits = this.raycaster.intersectObjects(clusters.concat(proxies), true);
+    for (const hit of widgetHits) {
       const control = controlOf(hit.object);
-      if (control) return { control, point: hit.point };
+      if (!control) continue;
+      if (hit.distance > shellDistance + 0.008) break;
+      return { control, point: hit.point };
+    }
+    if (!proxies.length) return null;
+    const bodyHits = this.raycaster.intersectObjects(proxies, true);
+    for (const hit of bodyHits) {
+      if (hit.distance > shellDistance + 0.001) break;
+      if (controlOf(hit.object)) continue;
       let object = hit.object;
-      while (object && object.name !== 'controller-proxy' && object.name !== 'desktop-cluster') object = object.parent;
-      if (object && object.name === 'desktop-cluster') continue;
-      if (object && object.name === 'controller-proxy') return { point: hit.point, hand: object.parent };
-      return null;
+      while (object && object.name !== 'controller-proxy') object = object.parent;
+      if (object) return { point: hit.point, hand: object.parent };
     }
     return null;
   },
@@ -648,7 +678,7 @@ AFRAME.registerComponent('desktop-rig', {
       this.capture(event);
       return;
     }
-    control.owner.beginRingDrag();
+    control.owner.beginRingDrag(control.group);
     hand.updateWorldMatrix(true, false);
     const planePoint = control.owner.frozenPos.clone();
     const axis = new THREE.Vector3(control.axis.x, control.axis.y, control.axis.z).transformDirection(hand.matrixWorld).normalize();
