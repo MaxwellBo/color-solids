@@ -110,7 +110,10 @@ function addButtons(parent, controls) {
     button.setAttribute('aria-pressed', 'false');
     button.addEventListener('click', () => {
       activateDesktopControl(control.id);
-      button.setAttribute('aria-pressed', desktopControlPressed(control.id) ? 'true' : 'false');
+      for (const other of parent.closest('#controls').querySelectorAll('button')) {
+        const pressed = desktopControlPressed(other.id) ? 'true' : 'false';
+        if (other.getAttribute('aria-pressed') !== pressed) other.setAttribute('aria-pressed', pressed);
+      }
     });
     row.append(button);
     buttons.push(button);
@@ -146,6 +149,8 @@ export function bindSidePanel() {
 
   const sliders = [];
   const buttons = [];
+  const columns = document.createElement('div');
+  columns.className = 'hands';
   for (const hand of HANDS) {
     const section = document.createElement('section');
     const title = document.createElement('h2');
@@ -160,8 +165,9 @@ export function bindSidePanel() {
       section.append(heading);
       buttons.push(...addButtons(section, group.controls));
     }
-    panel.append(section);
+    columns.append(section);
   }
+  panel.append(columns);
 
   const frame = () => {
     syncPanel(panel, sliders, buttons);

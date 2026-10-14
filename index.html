@@ -89,7 +89,8 @@
         top: 18px;
         right: 18px;
         bottom: 88px;
-        width: min(280px, calc(100vw - 36px));
+        box-sizing: border-box;
+        width: min(420px, calc(100vw - 380px));
         overflow: auto;
         padding: 16px 16px 8px;
         border-radius: 16px;
@@ -118,16 +119,25 @@
         font-size: 13.5px;
         line-height: 1.45;
       }
-      #controls section + section {
-        margin-top: 4px;
-        padding-top: 12px;
-        border-top: 1px solid rgba(255, 255, 255, 0.08);
+      #controls .hands {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px 18px;
       }
+      #controls input[type="range"] { margin: 2px 0 8px; }
       #controls .actions {
-        display: flex;
-        flex-wrap: wrap;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
         gap: 6px;
         margin: 0 0 12px;
+      }
+      #controls button {
+        padding: 6px 8px;
+        font-size: 12.5px;
+      }
+      @media (max-width: 1100px) {
+        #controls { width: min(280px, calc(100vw - 36px)); box-sizing: border-box; }
+        #controls .hands { grid-template-columns: 1fr; }
       }
       @media (max-height: 720px) {
         #hud { top: 10px; padding: 12px; }
