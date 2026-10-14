@@ -13,23 +13,24 @@ export const MOVE_AXES = [
 // Pitch, yaw, and roll are the YXZ euler components, matching A-Frame.
 // The three rings share one center so a ring seen edge-on still reads as
 // part of the gimbal instead of a stray bar.
+// Radii grow outward so the three rings form one gimbal around the controller.
 export const ROTATE_AXES = [
-  { key: 'pitch', component: 'x', axis: { x: 1, y: 0, z: 0 }, radius: 0.042, color: 0xe24b4b, label: 'Pitch' },
-  { key: 'yaw', component: 'y', axis: { x: 0, y: 1, z: 0 }, radius: 0.058, color: 0x3cba6c, label: 'Yaw' },
-  { key: 'roll', component: 'z', axis: { x: 0, y: 0, z: 1 }, radius: 0.074, color: 0x3d7ee0, label: 'Roll' },
+  { key: 'pitch', component: 'x', axis: { x: 1, y: 0, z: 0 }, radius: 0.11, color: 0xe24b4b, label: 'Pitch' },
+  { key: 'yaw', component: 'y', axis: { x: 0, y: 1, z: 0 }, radius: 0.14, color: 0x3cba6c, label: 'Yaw' },
+  { key: 'roll', component: 'z', axis: { x: 0, y: 0, z: 1 }, radius: 0.17, color: 0x3d7ee0, label: 'Roll' },
 ];
 
-// World-space offset from the hand to its move/rotate cluster.
+// The move bars and the gimbal are centered on the hand, not parked beside it.
 export const CLUSTER_OFFSET = {
-  left: { x: -0.18, y: 0.04, z: 0.02 },
-  right: { x: 0.18, y: 0.06, z: 0 },
+  left: { x: 0, y: 0, z: 0 },
+  right: { x: 0, y: 0, z: 0 },
 };
+export const GIMBAL_OFFSET = { x: 0, y: 0, z: 0 };
 
-// Rings share a center just above the arrows. Pads sit beside that gizmo.
-export const GIMBAL_OFFSET = { x: 0, y: 0.17, z: 0 };
-export const PAD_OFFSET = {
-  left: { x: -0.12, y: 0, z: 0.02 },
-  right: { x: 0.16, y: 0.02, z: 0.02 },
+// Proxy-local thumbstick centers. Walk arrows and turn arcs sit on these.
+export const STICK_POSITION = {
+  left: { x: -0.0179, y: -0.0106, z: -0.0313 },
+  right: { x: 0.0179, y: -0.0106, z: -0.0313 },
 };
 export const BAR_LENGTH = 0.08;
 

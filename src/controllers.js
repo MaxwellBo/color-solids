@@ -9,11 +9,11 @@ import {
 import { prepareControllerMaterials } from './lighting.js';
 import {
   BAR_LENGTH,
-  CLUSTER_OFFSET,
+  FACE_NORMAL,
   GIMBAL_OFFSET,
   MOVE_AXES,
-  PAD_OFFSET,
   ROTATE_AXES,
+  STICK_POSITION,
   lineParameter,
   projectOntoPlane,
   quantizeAxis,
@@ -175,6 +175,7 @@ AFRAME.registerComponent('controller-proxy', {
     this.ringLabels = [];
     this.buildSurface();
     this.buildCluster();
+    this.buildStickPad();
     this.loadControllerModel();
     this.savedPosition = new THREE.Vector3();
     this.savedQuaternion = new THREE.Quaternion();
@@ -182,6 +183,8 @@ AFRAME.registerComponent('controller-proxy', {
     this.forward = new THREE.Vector3();
     this.right = new THREE.Vector3();
     this.camPos = new THREE.Vector3();
+    this.camUp = new THREE.Vector3();
+    this.padQuat = new THREE.Quaternion();
     this.labelScratch = new THREE.Vector3();
     this.restoreFrames = 0;
     this.posed = false;
@@ -190,7 +193,6 @@ AFRAME.registerComponent('controller-proxy', {
     this.onEnterVR = () => {
       this.proxy.visible = false;
       this.cluster.visible = false;
-      this.stem.visible = false;
       const model = this.el.getObject3D('mesh');
       if (model) model.visible = true;
     };
@@ -198,7 +200,6 @@ AFRAME.registerComponent('controller-proxy', {
       this.restoreFrames = 8;
       this.proxy.visible = true;
       this.cluster.visible = true;
-      this.stem.visible = true;
       const model = this.el.getObject3D('mesh');
       if (model) model.visible = false;
     };
@@ -243,7 +244,7 @@ AFRAME.registerComponent('controller-proxy', {
       prepareControllerMaterials(model);
       this.proxy.add(model);
       for (const child of this.proxy.children) {
-        if (child !== model && child.name !== 'hand-handle' && child.name !== 'surface-control') child.visible = false;
+        if (child !== model && child.name !== 'hand-handle' && child.name !== 'surface-control' && child.name !== 'stick-control') child.visible = false;
       }
       model.updateWorldMatrix(true, true);
       const box = new THREE.Box3().setFromObject(model);
@@ -299,21 +300,15 @@ AFRAME.registerComponent('controller-proxy', {
     this.cluster.name = 'desktop-cluster';
     this.el.object3D.add(this.cluster);
 
-    const stemMaterial = basicMaterial(0x8d877c);
-    this.stem = new THREE.Mesh(new THREE.CylinderGeometry(0.0016, 0.0016, 1, 6), stemMaterial);
-    this.stem.raycast = () => {};
-    this.el.object3D.add(this.stem);
-
-    const hub = new THREE.Mesh(new THREE.SphereGeometry(0.012, 14, 10), basicMaterial(0xf4f0e8));
-    hub.raycast = () => {};
-    this.cluster.add(hub);
-
+    const barStart = ROTATE_AXES[ROTATE_AXES.length - 1].radius + 0.02;
     for (const axis of MOVE_AXES) {
       const material = basicMaterial(axis.color);
-      const group = arrowMesh(BAR_LENGTH, 0.012, material);
-      group.quaternion.setFromUnitVectors(Y_AXIS, new THREE.Vector3(axis.direction.x, axis.direction.y, axis.direction.z));
-      const label = labelSprite(axis.label, 0.045);
-      label.position.y = BAR_LENGTH + 0.02;
+      const direction = new THREE.Vector3(axis.direction.x, axis.direction.y, axis.direction.z);
+      const group = arrowMesh(BAR_LENGTH, 0.011, material);
+      group.quaternion.setFromUnitVectors(Y_AXIS, direction);
+      group.position.copy(direction).multiplyScalar(barStart);
+      const label = labelSprite(axis.label, 0.04);
+      label.position.y = BAR_LENGTH + 0.015;
       group.add(label);
       this.cluster.add(group);
       this.controls.push(registerControl({
@@ -334,16 +329,11 @@ AFRAME.registerComponent('controller-proxy', {
     this.gimbal = new THREE.Group();
     this.gimbal.position.set(GIMBAL_OFFSET.x, GIMBAL_OFFSET.y, GIMBAL_OFFSET.z);
     this.cluster.add(this.gimbal);
-    const link = new THREE.Mesh(new THREE.CylinderGeometry(0.0016, 0.0016, 1, 6), stemMaterial);
-    link.raycast = () => {};
-    link.position.y = GIMBAL_OFFSET.y / 2;
-    link.scale.y = GIMBAL_OFFSET.y;
-    this.cluster.add(link);
     for (const axis of ROTATE_AXES) {
       const material = basicMaterial(axis.color);
       const group = new THREE.Group();
       group.userData.home = { x: 0, y: 0, z: 0 };
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(axis.radius, 0.0055, 12, 48), material);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(axis.radius, 0.0065, 12, 64), material);
       ring.quaternion.setFromUnitVectors(Z_AXIS, new THREE.Vector3(axis.axis.x, axis.axis.y, axis.axis.z));
       // Spread the arrowheads so the three rings don't stack their tips.
       const headAngle = axis.component === 'x' ? 0.6 : axis.component === 'y' ? 2.4 : 4.2;
@@ -381,16 +371,19 @@ AFRAME.registerComponent('controller-proxy', {
       }));
     }
 
-    this.pad = new THREE.Group();
-    const padOffset = PAD_OFFSET[hand];
-    this.pad.position.set(padOffset.x, padOffset.y, padOffset.z);
-    this.cluster.add(this.pad);
-    if (hand === 'left') {
-      const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.002, 24), basicMaterial(0x2a3038));
-      pad.raycast = () => {};
-      this.pad.add(pad);
-    }
+  },
 
+  // Walk and turn handles sit on the thumbstick, in the plane of the face,
+  // so the stick itself shows what that input does.
+  buildStickPad() {
+    const hand = this.data.hand;
+    const stick = STICK_POSITION[hand];
+    const normal = new THREE.Vector3(FACE_NORMAL.x, FACE_NORMAL.y, FACE_NORMAL.z);
+    this.pad = new THREE.Group();
+    this.pad.name = 'stick-control';
+    this.pad.position.set(stick.x, stick.y, stick.z).addScaledVector(normal, 0.012);
+    this.pad.quaternion.setFromUnitVectors(Y_AXIS, normal);
+    this.proxy.add(this.pad);
     if (hand === 'left') this.buildWalkPad();
     else this.buildTurnPad();
   },
@@ -400,7 +393,7 @@ AFRAME.registerComponent('controller-proxy', {
     for (const control of STICK_CONTROLS) {
       if (control.hand !== 'left' || control.flick) continue;
       const material = basicMaterial(0xf4f0e8);
-      const group = arrowMesh(0.055, 0.011, material);
+      const group = arrowMesh(0.022, 0.0055, material);
       this.pad.add(group);
       const widget = registerControl({
         id: control.id,
@@ -427,13 +420,13 @@ AFRAME.registerComponent('controller-proxy', {
       discMaterial.transparent = true;
       discMaterial.opacity = 0.92;
       discMaterial.depthWrite = false;
-      const group = yawArc(control.flick, material, 0.02);
-      const disc = new THREE.Mesh(new THREE.CircleGeometry(0.032, 24), discMaterial);
+      const group = yawArc(control.flick, material, 0.01);
+      const disc = new THREE.Mesh(new THREE.CircleGeometry(0.009, 18), discMaterial);
       disc.rotation.x = -Math.PI / 2;
       group.add(disc);
-      group.position.x = control.flick > 0 ? 0.04 : -0.04;
-      const label = labelSprite(control.flick > 0 ? 'R' : 'L', 0.03);
-      label.position.y = 0.025;
+      group.position.set(control.flick > 0 ? 0.056 : 0.034, 0, 0);
+      const label = labelSprite(control.flick > 0 ? 'R' : 'L', 0.012);
+      label.position.y = 0.01;
       group.add(label);
       this.pad.add(group);
       this.controls.push(registerControl({
@@ -450,20 +443,12 @@ AFRAME.registerComponent('controller-proxy', {
     }
   },
 
-  // The cluster follows the hand. Bars stay on the world axes, rings keep
-  // the hand's orientation, and walk arrows point the way the viewer moves.
+  // Bars stay on the world axes and rings keep the hand's orientation.
+  // Both are centered on the controller. Walk arrows follow the view.
   layoutCluster() {
     const hand = this.el.object3D;
-    const offset = CLUSTER_OFFSET[this.data.hand];
     this.cluster.quaternion.copy(hand.quaternion).invert();
-    this.cluster.position.set(offset.x, offset.y, offset.z).applyQuaternion(this.cluster.quaternion);
-    const span = this.cluster.position.length();
-    if (span > 1e-4) {
-      this.stem.position.copy(this.cluster.position).multiplyScalar(0.5);
-      this.stem.quaternion.setFromUnitVectors(Y_AXIS, this.cluster.position.clone().normalize());
-      this.stem.scale.set(1, span, 1);
-      this.stem.visible = this.cluster.visible;
-    }
+    this.cluster.position.set(0, 0, 0);
     this.gimbal.position.set(GIMBAL_OFFSET.x, GIMBAL_OFFSET.y, GIMBAL_OFFSET.z);
     this.gimbal.quaternion.copy(hand.quaternion);
     if (this.heldRing) {
@@ -471,46 +456,30 @@ AFRAME.registerComponent('controller-proxy', {
       this.heldRing.quaternion.copy(hand.quaternion);
     }
     this.layoutWalk();
-    this.layoutTurn();
     this.layoutRingLabels();
   },
 
-  // Pitch, yaw, and roll share a center, so their names sit just outside the
-  // gimbal: pitch on the left, yaw above, roll on the right.
+  // Pitch sits left of the gimbal, yaw above it, roll to the right, just
+  // outside the ring so the name stays with that axis as the view changes.
   layoutRingLabels() {
     const camera = this.el.sceneEl.camera;
     if (!camera) return;
     this.gimbal.updateWorldMatrix(true, true);
-    const center = this.gimbal.getWorldPosition(this.labelScratch).clone().project(camera);
+    const center = this.gimbal.getWorldPosition(this.camPos);
+    this.right.setFromMatrixColumn(camera.matrixWorld, 0).normalize();
+    this.camUp.setFromMatrixColumn(camera.matrixWorld, 1).normalize();
     for (const item of this.ringLabels) {
+      const reach = item.radius + 0.02;
       this.labelScratch.copy(center);
-      if (item.prefer === 'left') this.labelScratch.x -= 0.072;
-      else if (item.prefer === 'right') this.labelScratch.x += 0.072;
-      else this.labelScratch.y += 0.15;
-      this.labelScratch.unproject(camera);
+      if (item.prefer === 'left') this.labelScratch.addScaledVector(this.right, -reach);
+      else if (item.prefer === 'right') this.labelScratch.addScaledVector(this.right, reach);
+      else {
+        this.labelScratch.addScaledVector(this.camUp, reach * 0.85);
+        this.labelScratch.addScaledVector(this.right, -reach * 0.45);
+      }
       item.ring.worldToLocal(this.labelScratch);
       item.label.position.copy(this.labelScratch);
     }
-  },
-
-  // The two turn discs face the camera and sit beside the gimbal, so they
-  // read as a left/right pair instead of flat marks on the floor.
-  layoutTurn() {
-    if (this.data.hand !== 'right') return;
-    const camera = this.el.sceneEl.camera;
-    if (!camera) return;
-    camera.getWorldDirection(this.forward);
-    this.right.setFromMatrixColumn(camera.matrixWorld, 0);
-    if (this.right.lengthSq() < 1e-6) return;
-    this.right.normalize();
-    const toward = this.forward.clone().negate();
-    this.pad.position.set(
-      GIMBAL_OFFSET.x + this.right.x * 0.14,
-      GIMBAL_OFFSET.y + this.right.y * 0.14,
-      GIMBAL_OFFSET.z + this.right.z * 0.14,
-    );
-    const zAxis = new THREE.Vector3().crossVectors(this.right, toward).normalize();
-    this.pad.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(this.right, toward, zAxis));
   },
 
   layoutWalk() {
@@ -522,14 +491,17 @@ AFRAME.registerComponent('controller-proxy', {
     if (this.forward.lengthSq() < 1e-6) return;
     this.forward.normalize();
     this.right.crossVectors(this.forward, Y_AXIS).normalize();
+    this.pad.updateWorldMatrix(true, true);
+    this.pad.getWorldQuaternion(this.padQuat).invert();
     const travel = new THREE.Vector3();
     for (const group of this.walkArrows) {
       const stick = group.userData.control.stick;
       const direction = travelDirection(stick, this.forward, this.right);
-      travel.set(direction.x, direction.y, direction.z);
+      travel.set(direction.x, direction.y, direction.z).applyQuaternion(this.padQuat);
+      travel.y = 0;
       if (travel.lengthSq() < 1e-6) continue;
       travel.normalize();
-      group.position.copy(travel).multiplyScalar(0.04);
+      group.position.copy(travel).multiplyScalar(0.014);
       group.quaternion.setFromUnitVectors(Y_AXIS, travel);
     }
   },
@@ -557,7 +529,6 @@ AFRAME.registerComponent('controller-proxy', {
     this.endRingDrag();
     this.proxy.removeFromParent();
     this.cluster.removeFromParent();
-    this.stem.removeFromParent();
   },
 });
 
@@ -575,9 +546,9 @@ function yawArc(flick, material, radius) {
     points.push(new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius));
   }
   const curve = new THREE.CatmullRomCurve3(points);
-  group.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 28, 0.0042, 6, false), material));
+  group.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 20, radius * 0.28, 6, false), material));
   const tangent = new THREE.Vector3().subVectors(points[points.length - 1], points[points.length - 2]).normalize();
-  const head = new THREE.Mesh(new THREE.ConeGeometry(0.009, 0.016, 8), material);
+  const head = new THREE.Mesh(new THREE.ConeGeometry(radius * 0.42, radius * 0.7, 8), material);
   head.position.copy(points[points.length - 1]);
   head.quaternion.setFromUnitVectors(Y_AXIS, tangent);
   group.add(head);

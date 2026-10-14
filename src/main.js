@@ -706,7 +706,7 @@ AFRAME.registerComponent('orbit-view', {
     this.onWheel = (event) => {
       if (sceneInHeadset(this.el.sceneEl)) return;
       event.preventDefault();
-      this.radius = clamp(this.radius * Math.exp(event.deltaY * 0.001), 1.2, 8);
+      this.radius = clamp(this.radius * Math.exp(event.deltaY * 0.002), 0.2, 8);
     };
     this.onKeyDown = (event) => {
       if (event.target instanceof HTMLInputElement) return;
