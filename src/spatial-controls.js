@@ -27,7 +27,7 @@ export const CLUSTER_OFFSET = {
 };
 export const GIMBAL_OFFSET = { x: 0, y: 0, z: 0 };
 
-// Proxy-local thumbstick centers. Walk arrows and turn arcs sit on these.
+// Proxy-local thumbstick centers. Walk arrows sit on the left stick.
 export const STICK_POSITION = {
   left: { x: -0.0179, y: -0.0106, z: -0.0313 },
   right: { x: 0.0179, y: -0.0106, z: -0.0313 },

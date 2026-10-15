@@ -108,6 +108,7 @@ function arrowMesh(length, radius, material) {
 
 function paintControl(control, pressed) {
   control.pressed = pressed;
+  if (!control.materials || !control.group) return;
   const color = pressed ? PRESSED_COLOR : control.color;
   for (const material of control.materials) material.color.setHex(color);
   control.group.scale.setScalar(pressed ? 1.14 : 1);
@@ -171,7 +172,7 @@ export function desktopControlPressed(id) {
 }
 
 function registerControl(control) {
-  control.group.userData.control = control;
+  if (control.group) control.group.userData.control = control;
   controlById.set(control.id, control);
   return control;
 }
@@ -384,19 +385,33 @@ AFRAME.registerComponent('controller-proxy', {
 
   },
 
-  // Walk and turn handles sit on the thumbstick, in the plane of the face,
-  // so the stick itself shows what that input does.
+  // Walk arrows sit on the left thumbstick. Turning stays on the side panel,
+  // so the right controller has no turn arcs.
   buildStickPad() {
-    const hand = this.data.hand;
-    const stick = STICK_POSITION[hand];
+    if (this.data.hand !== 'left') {
+      this.registerPanelTurns();
+      return;
+    }
+    const stick = STICK_POSITION.left;
     const normal = new THREE.Vector3(FACE_NORMAL.x, FACE_NORMAL.y, FACE_NORMAL.z);
     this.pad = new THREE.Group();
     this.pad.name = 'stick-control';
     this.pad.position.set(stick.x, stick.y, stick.z).addScaledVector(normal, 0.012);
     this.pad.quaternion.setFromUnitVectors(Y_AXIS, normal);
     this.proxy.add(this.pad);
-    if (hand === 'left') this.buildWalkPad();
-    else this.buildTurnPad();
+    this.buildWalkPad();
+  },
+
+  registerPanelTurns() {
+    for (const control of STICK_CONTROLS) {
+      if (!control.flick || control.hand !== this.data.hand) continue;
+      this.controls.push(registerControl({
+        id: control.id,
+        kind: 'button',
+        hand: control.hand,
+        pressed: false,
+      }));
+    }
   },
 
   buildWalkPad() {
@@ -420,37 +435,6 @@ AFRAME.registerComponent('controller-proxy', {
       });
       this.controls.push(widget);
       this.walkArrows.push(group);
-    }
-  },
-
-  buildTurnPad() {
-    for (const control of STICK_CONTROLS) {
-      if (!control.flick) continue;
-      const material = basicMaterial(0xf4f0e8);
-      const discMaterial = basicMaterial(0x2c333c);
-      discMaterial.transparent = true;
-      discMaterial.opacity = 0.92;
-      discMaterial.depthWrite = false;
-      const group = yawArc(control.flick, material, 0.01);
-      const disc = new THREE.Mesh(new THREE.CircleGeometry(0.009, 18), discMaterial);
-      disc.rotation.x = -Math.PI / 2;
-      group.add(disc);
-      group.position.set(control.flick > 0 ? 0.056 : 0.034, 0, 0);
-      const label = labelSprite(control.flick > 0 ? 'R' : 'L', 0.012);
-      label.position.y = 0.01;
-      group.add(label);
-      this.pad.add(group);
-      this.controls.push(registerControl({
-        id: control.id,
-        kind: 'button',
-        hand: 'right',
-        pressed: false,
-        color: 0xf4f0e8,
-        material,
-        materials: [material, discMaterial],
-        group,
-        owner: this,
-      }));
     }
   },
 
@@ -542,29 +526,6 @@ AFRAME.registerComponent('controller-proxy', {
     this.cluster.removeFromParent();
   },
 });
-
-function yawArc(flick, material, radius) {
-  const group = new THREE.Group();
-  // The disc faces the camera. On that face a negative sweep runs clockwise,
-  // which is a right turn.
-  const sweep = (flick > 0 ? -1 : 1) * Math.PI * 1.35;
-  const end = Math.PI * 0.5;
-  const start = end - sweep;
-  const points = [];
-  const steps = 20;
-  for (let i = 0; i <= steps; i += 1) {
-    const angle = start + sweep * (i / steps);
-    points.push(new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius));
-  }
-  const curve = new THREE.CatmullRomCurve3(points);
-  group.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 20, radius * 0.28, 6, false), material));
-  const tangent = new THREE.Vector3().subVectors(points[points.length - 1], points[points.length - 2]).normalize();
-  const head = new THREE.Mesh(new THREE.ConeGeometry(radius * 0.42, radius * 0.7, 8), material);
-  head.position.copy(points[points.length - 1]);
-  head.quaternion.setFromUnitVectors(Y_AXIS, tangent);
-  group.add(head);
-  return group;
-}
 
 AFRAME.registerComponent('desktop-rig', {
   init() {
