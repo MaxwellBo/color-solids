@@ -1,5 +1,5 @@
 import { clamp01, linearToSrgb, oklabToLinearSrgb } from './oklab.js';
-import { BASE_Y, SCALE, VIEW_TARGET, labToWorld } from './scale.js';
+import { BASE_Y, SCALE, VIEW_TARGET, labToWorld, worldToLab } from './scale.js';
 import { buildEdgeTubeArrays, buildShellArrays, buildSliceArrays } from './geometry.js';
 import {
   buildStrokeArrays,
@@ -25,6 +25,14 @@ import {
 } from './hand.js';
 import { installScenePassthrough } from './passthrough.js';
 import { EXHIBIT_VERSION } from './version.js';
+import {
+  createReadout,
+  formatLch,
+  formatLightness,
+  labToLch,
+  sliceLabelPoint,
+  sliceLightness,
+} from './lch.js';
 import { DESKTOP_BUTTONS } from './desktop-hands.js';
 import './controllers.js';
 import { bindSidePanel } from './side-panel.js';
@@ -195,6 +203,9 @@ AFRAME.registerComponent('oklab-rgb-solid', {
     this.cutActive = false;
     this.cutLocalPoint = new THREE.Vector3();
     this.cutLocalNormal = new THREE.Vector3(0, 1, 0);
+    this.sliceReadout = createReadout(THREE, { width: 512, height: 160, scale: 0.14 });
+    this.sliceReadout.name = 'slice-readout';
+    this.el.sceneEl.object3D.add(this.sliceReadout);
     this.yAxis = new THREE.Vector3(0, 1, 0);
 
     const renderer = this.el.sceneEl.renderer;
@@ -453,6 +464,37 @@ AFRAME.registerComponent('oklab-rgb-solid', {
     return colorAtLocalPoint(local.x, local.y, local.z);
   },
 
+  labAtWorldPoint(worldPoint) {
+    if (!this.shellMesh) return null;
+    this.shellMesh.updateWorldMatrix(true, false);
+    const local = this.shellMesh.worldToLocal(worldPoint.clone());
+    return worldToLab(local.x, local.y, local.z);
+  },
+
+  updateSliceReadout() {
+    if (!this.sliceReadout) return;
+    let point = null;
+    let normal = null;
+    if (this.cutActive) {
+      point = this.cutLocalPoint;
+      normal = this.cutLocalNormal;
+    } else if (!this.held && this.cutaway) {
+      const level = labToWorld(this.lightness, 0, 0);
+      point = level;
+      normal = { x: 0, y: 1, z: 0 };
+    }
+    if (!point) {
+      this.sliceReadout.visible = false;
+      return;
+    }
+    const label = sliceLabelPoint(point, normal);
+    this.sliceReadout.userData.setText(formatLightness(sliceLightness(point, normal)));
+    this.heldRoot.updateWorldMatrix(true, false);
+    this.sliceReadout.position.set(label.x, label.y, label.z);
+    this.heldRoot.localToWorld(this.sliceReadout.position);
+    this.sliceReadout.visible = true;
+  },
+
   updateClipPlane() {
     if (!this.shellMesh) return;
     const cutting = this.cutActive;
@@ -473,8 +515,11 @@ AFRAME.registerComponent('oklab-rgb-solid', {
       this.poseCutAnchor();
       this.shellMesh.updateWorldMatrix(true, false);
       this.sectionMaterial.uniforms.solidInverse.value.copy(this.shellMesh.matrixWorld).invert();
+      this.updateSliceReadout();
       return;
     }
+
+    this.updateSliceReadout();
 
     this.sliceMesh.visible = !this.held && this.cutaway;
     if (this.held || !this.cutaway) {
@@ -633,13 +678,17 @@ AFRAME.registerComponent('oklab-rgb-solid', {
       '',
       'Tap A or B while',
       'pointing away to close',
-      'the cut.',
+      'the cut. Its L floats',
+      'beside the slice.',
       '',
       'Hold the back trigger.',
       'Its ray picks the solid.',
       'A ring shows the color',
       'where it meets, or',
-      'inside the volume.',
+      'inside the volume,',
+      'with L, c, and h.',
+      'Let go and that reading',
+      'stays on this controller.',
       '',
       'Hold the trigger to paint',
       'with the picked color.',
@@ -942,7 +991,17 @@ AFRAME.registerComponent('quest-brush', {
     this.pickRing.renderOrder = 21;
     this.pickMarker.add(this.pickFill, this.pickRing);
     this.el.sceneEl.object3D.add(this.pickMarker);
+    this.pickReadout = createReadout(THREE, { width: 512, height: 320, scale: 0.12 });
+    this.pickReadout.name = 'pick-readout';
+    this.el.sceneEl.object3D.add(this.pickReadout);
+    this.controllerReadout = createReadout(THREE, { width: 512, height: 320, scale: 0.09 });
+    this.controllerReadout.name = 'controller-readout';
+    this.controllerReadout.position.set(0.2, 0.14, -0.08);
+    this.el.object3D.add(this.controllerReadout);
+    this.pickedLch = null;
     this.cameraPosition = new THREE.Vector3();
+    this.readoutRight = new THREE.Vector3();
+    this.readoutUp = new THREE.Vector3();
 
     this.aHeld = false;
     this.bHeld = false;
@@ -970,6 +1029,8 @@ AFRAME.registerComponent('quest-brush', {
     this.onGripUp = () => {
       this.gripHeld = false;
       this.pickMarker.visible = false;
+      this.pickReadout.visible = false;
+      this.showControllerReadout();
     };
     this.onTriggerDown = () => {
       if (!this.brush) return;
@@ -1099,9 +1160,11 @@ AFRAME.registerComponent('quest-brush', {
     const sample = this.sampleRay(solid);
     if (!sample) {
       this.pickMarker.visible = false;
+      this.pickReadout.visible = false;
       return null;
     }
-    this.showPick(sample.point, sample.rgb);
+    const lab = solid.labAtWorldPoint(sample.point);
+    this.showPick(sample.point, sample.rgb, lab ? labToLch(lab.L, lab.a, lab.b) : null);
     return sample.rgb;
   },
 
@@ -1144,8 +1207,9 @@ AFRAME.registerComponent('quest-brush', {
     return solid.clipPlane.distanceToPoint(hit.point) >= -0.004;
   },
 
-  showPick(point, rgb) {
+  showPick(point, rgb, lch) {
     this.setBrushColor(rgb);
+    if (lch) this.pickedLch = lch;
     this.pickFill.material.color.copy(linearColor(rgb));
     this.pickMarker.position.copy(point);
     const camera = this.el.sceneEl.camera;
@@ -1158,6 +1222,25 @@ AFRAME.registerComponent('quest-brush', {
       }
     }
     this.pickMarker.visible = true;
+    if (lch) {
+      this.pickReadout.userData.setText(formatLch(lch));
+      this.readoutRight.set(1, 0, 0).applyQuaternion(this.pickMarker.quaternion);
+      this.readoutUp.set(0, 1, 0).applyQuaternion(this.pickMarker.quaternion);
+      this.pickReadout.position.copy(this.pickMarker.position)
+        .addScaledVector(this.readoutRight, 0.07)
+        .addScaledVector(this.readoutUp, 0.02);
+      this.pickReadout.visible = true;
+      this.controllerReadout.visible = false;
+    }
+  },
+
+  showControllerReadout() {
+    if (!this.pickedLch) {
+      this.controllerReadout.visible = false;
+      return;
+    }
+    this.controllerReadout.userData.setText(formatLch(this.pickedLch));
+    this.controllerReadout.visible = true;
   },
 
   pickFromTip() {
@@ -1259,6 +1342,8 @@ AFRAME.registerComponent('quest-brush', {
     this.el.removeEventListener('controllerconnected', this.disarmCursor);
     this.el.removeEventListener('controllermodelready', this.disarmCursor);
     this.pickMarker.removeFromParent();
+    this.pickReadout.removeFromParent();
+    this.controllerReadout.removeFromParent();
     this.paintRoot.removeFromParent();
   },
 });
