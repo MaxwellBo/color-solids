@@ -7,6 +7,7 @@ import {
   PICK_FILL_RADIUS,
   PICK_RING_INNER,
   PICK_RING_OUTER,
+  interiorSampleCounts,
   selectColorTarget,
   STROKE_RADIUS,
 } from './brush.js';
@@ -701,8 +702,9 @@ AFRAME.registerComponent('oklab-rgb-solid', {
       'The color stays on the',
       'solid. L, c, and h stay',
       'on this controller.',
-      'That pick stops the',
-      'left-hand slice.',
+      'That pick samples the',
+      'open slice. The cut',
+      'stays where it is.',
       '',
       'Hold the trigger to paint',
       'with the picked color.',
@@ -714,8 +716,8 @@ AFRAME.registerComponent('oklab-rgb-solid', {
       'The index',
       'trigger raises lightness',
       'and the grip lowers it.',
-      'That slice stays until',
-      'a right-hand pick.',
+      'A right-hand pick keeps',
+      'that cut open.',
       '',
       'Y on the left grows the',
       'solid. X shrinks it.',
@@ -949,15 +951,14 @@ AFRAME.registerComponent('color-stick', {
     return hand && hand.components['quest-brush'];
   },
 
-  // A right-hand pick replaces this color and drops the slice.
+  // A right-hand pick replaces this color and stops the stick from driving
+  // the slice. The cut stays, so the ray can keep sampling the sliced face.
   stopSlicing(lch) {
     this.mode = false;
     if (lch) {
       const lab = lchToLab(lch.L, lch.c, lch.h);
       this.color = { L: lab.L, a: lab.a, b: lab.b };
     }
-    const solid = this.solid();
-    if (solid) solid.endControllerCut();
   },
 
   applyLevelSlice(solid, color) {
@@ -1301,7 +1302,11 @@ AFRAME.registerComponent('quest-brush', {
   },
 
   sampleRay(solid) {
-    const here = solid.colorAtWorldPoint(this.tip);
+    // A tip in the cut-away half is not inside the solid you can see. Sampling
+    // it would skip the slice and report a hidden color.
+    const tipKept = !solid.cutActive || solid.clipPlane.distanceToPoint(this.tip) >= -0.004;
+    const tipColor = solid.colorAtWorldPoint(this.tip);
+    const here = interiorSampleCounts(Boolean(tipColor), tipKept) ? tipColor : null;
     if (!this.aimRay) this.aimRay = new THREE.Raycaster();
     this.aimRay.set(this.tip, this.forward, 0, 8);
     // The cut moves during this frame's earlier tick, so the cap's world

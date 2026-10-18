@@ -40,8 +40,15 @@ function firstDistance(hits, accept) {
   return null;
 }
 
+// The ray's start counts only when it is in the gamut and on the kept side
+// of an open slice. The cut-away half is not a color you can sample.
+export function interiorSampleCounts(insideGamut, onKeptSide) {
+  return Boolean(insideGamut) && onKeptSide !== false;
+}
+
 // A painted stroke in front of the solid is the color the ray is touching.
-// Inside the solid, the ray's start still wins.
+// Inside the kept solid, the ray's start still wins. Otherwise the nearest
+// colored hit on the slice or the kept shell does.
 export function selectColorTarget(originInside, solidHits, strokeHits = []) {
   if (originInside) return { source: 'inside' };
   const solid = firstDistance(solidHits, (hit) => hit.color && hit.onSolidSide);
