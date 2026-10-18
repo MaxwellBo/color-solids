@@ -6,6 +6,7 @@ import {
   PICK_FILL_RADIUS,
   PICK_RING_INNER,
   PICK_RING_OUTER,
+  selectColorTarget,
   selectPick,
 } from './brush.js';
 import { labToWorld } from './scale.js';
@@ -27,6 +28,15 @@ test('a pick ray uses the start when it is already inside, otherwise the first s
   assert.deepEqual(selectPick(true, hits), { source: 'inside' });
   assert.deepEqual(selectPick(false, hits), { source: 'ray', index: 1 });
   assert.equal(selectPick(false, [{ color: false, onSolidSide: true }]), null);
+});
+
+test('a painted stroke in front of the solid is the color the ray picks', () => {
+  const solidHits = [{ color: true, onSolidSide: true, distance: 0.4 }];
+  const strokeHits = [{ color: true, distance: 0.15 }];
+  assert.deepEqual(selectColorTarget(false, solidHits, strokeHits), { source: 'stroke', index: 0 });
+  assert.deepEqual(selectColorTarget(false, solidHits, [{ color: true, distance: 0.8 }]), { source: 'solid', index: 0 });
+  assert.deepEqual(selectColorTarget(true, solidHits, strokeHits), { source: 'inside' });
+  assert.equal(selectColorTarget(false, [{ color: false, onSolidSide: true, distance: 0.2 }], []), null);
 });
 
 test('the pick ring is a small outline around the color', () => {

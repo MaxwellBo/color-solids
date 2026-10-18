@@ -27,7 +27,7 @@ export const CLUSTER_OFFSET = {
 };
 export const GIMBAL_OFFSET = { x: 0, y: 0, z: 0 };
 
-// Proxy-local thumbstick centers. Walk arrows sit on the left stick.
+// Proxy-local thumbstick centers. Hue and chroma arrows sit on the left stick.
 export const STICK_POSITION = {
   left: { x: -0.0179, y: -0.0106, z: -0.0313 },
   right: { x: 0.0179, y: -0.0106, z: -0.0313 },
@@ -108,6 +108,15 @@ export function signedAngleAround(from, to, axis) {
   return Math.atan2(dot(cross, axis), dot(from, to));
 }
 
+// Pad-local direction of a hue or chroma arrow. Up on the stick is toward
+// the controller tip, which is pad −Z. Right is pad +X.
+export function colorStickDirection(stick) {
+  if (stick.y > 0) return { x: 0, y: 0, z: -1 };
+  if (stick.y < 0) return { x: 0, y: 0, z: 1 };
+  if (stick.x > 0) return { x: 1, y: 0, z: 0 };
+  return { x: -1, y: 0, z: 0 };
+}
+
 // Where a stick reading carries the viewer. The world slides the other way,
 // so forward on the stick (positive y) walks back along the view direction
 // and positive x walks to the viewer's right.
@@ -125,10 +134,7 @@ export function yawSweep(flick) {
   return flick > 0 ? -1 : 1;
 }
 
-// Discs that sit on the Quest buttons a desktop user can press. Positions
-// are proxy-local metres. The left controller's actions live on its cluster.
-export function surfaceWidgets(hand) {
-  if (hand !== 'right') return [];
+function rightSurfaceWidgets() {
   const lift = 0.007;
   // B and the trigger sit one behind the other along the pointer, so on screen
   // they stack. A small shift across the face keeps each disc on its button
@@ -140,4 +146,29 @@ export function surfaceWidgets(hand) {
     { id: 'btn-trigger', label: 'Paint', color: 0x9ec2ff, radius: 0.008, position: add(add(SURFACE.trigger, FACE_NORMAL, 0.009), across, 0.014), direction: FACE_NORMAL },
     { id: 'btn-grip', label: 'Pick', color: 0xf7f7f7, radius: 0.0075, position: add(SURFACE.grip, FACE_NORMAL, 0.008), direction: FACE_NORMAL },
   ];
+}
+
+const LEFT_FROM_RIGHT = {
+  'btn-b': { id: 'btn-zoom-in', label: 'Y' },
+  'btn-a': { id: 'btn-zoom-out', label: 'X' },
+  'btn-trigger': { id: 'btn-lightness-up', label: 'L+' },
+  'btn-grip': { id: 'btn-lightness-down', label: 'L−' },
+};
+
+// Discs that sit on the Quest buttons a desktop user can press. Positions
+// are proxy-local metres. The left controller mirrors the right face: Y and
+// X zoom, and the triggers change lightness.
+export function surfaceWidgets(hand) {
+  const right = rightSurfaceWidgets();
+  if (hand === 'right') return right;
+  if (hand !== 'left') return [];
+  return right.map((widget) => {
+    const mapped = LEFT_FROM_RIGHT[widget.id];
+    return {
+      ...widget,
+      id: mapped.id,
+      label: mapped.label,
+      position: { x: -widget.position.x, y: widget.position.y, z: widget.position.z },
+    };
+  });
 }

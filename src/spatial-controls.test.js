@@ -11,6 +11,7 @@ import {
   projectOntoPlane,
   quantizeAxis,
   signedAngleAround,
+  colorStickDirection,
   surfaceWidgets,
   travelDirection,
   yawSweep,
@@ -78,7 +79,23 @@ test('buttons sit on the controller in the order the Quest face uses', () => {
       + widget.direction.z * FACE_NORMAL.z;
     assert.ok(along > 0.99);
   }
-  assert.deepEqual(surfaceWidgets('left'), []);
+  const left = surfaceWidgets('left');
+  const leftTip = Object.fromEntries(left.map((widget) => [widget.id, dot(widget.position, TIP_DIRECTION)]));
+  assert.deepEqual(left.map((widget) => widget.id), [
+    'btn-zoom-out',
+    'btn-zoom-in',
+    'btn-lightness-up',
+    'btn-lightness-down',
+  ]);
+  assert.ok(leftTip['btn-zoom-in'] > leftTip['btn-zoom-out']);
+  assert.ok(left[0].position.x === -widgets[0].position.x);
+});
+
+test('hue and chroma arrows point across and along the stick', () => {
+  assert.deepEqual(colorStickDirection({ x: 0, y: 1 }), { x: 0, y: 0, z: -1 });
+  assert.deepEqual(colorStickDirection({ x: 0, y: -1 }), { x: 0, y: 0, z: 1 });
+  assert.deepEqual(colorStickDirection({ x: 1, y: 0 }), { x: 1, y: 0, z: 0 });
+  assert.deepEqual(colorStickDirection({ x: -1, y: 0 }), { x: -1, y: 0, z: 0 });
 });
 
 test('stick arrows point the way that reading moves the viewer', () => {

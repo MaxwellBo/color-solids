@@ -14,12 +14,12 @@ import {
   MOVE_AXES,
   ROTATE_AXES,
   STICK_POSITION,
+  colorStickDirection,
   lineParameter,
   projectOntoPlane,
   quantizeAxis,
   signedAngleAround,
   surfaceWidgets,
-  travelDirection,
 } from './spatial-controls.js';
 
 const THREE = AFRAME.THREE;
@@ -385,7 +385,7 @@ AFRAME.registerComponent('controller-proxy', {
 
   },
 
-  // Walk arrows sit on the left thumbstick. Turning stays on the side panel,
+  // Hue and chroma arrows sit on the left thumbstick. Turning stays on the side panel,
   // so the right controller has no turn arcs.
   buildStickPad() {
     if (this.data.hand !== 'left') {
@@ -399,7 +399,7 @@ AFRAME.registerComponent('controller-proxy', {
     this.pad.position.set(stick.x, stick.y, stick.z).addScaledVector(normal, 0.012);
     this.pad.quaternion.setFromUnitVectors(Y_AXIS, normal);
     this.proxy.add(this.pad);
-    this.buildWalkPad();
+    this.buildColorPad();
   },
 
   registerPanelTurns() {
@@ -414,17 +414,15 @@ AFRAME.registerComponent('controller-proxy', {
     }
   },
 
-  buildWalkPad() {
-    this.walkArrows = [];
+  buildColorPad() {
+    this.stickArrows = [];
     for (const control of STICK_CONTROLS) {
       if (control.hand !== 'left' || control.flick) continue;
       const material = basicMaterial(0xf4f0e8);
       const group = arrowMesh(0.022, 0.0055, material);
-      if (control.axis === 'y') {
-        const label = labelSprite(control.value > 0 ? '+' : '−', 0.016);
-        label.position.set(0.012, 0.01, 0);
-        group.add(label);
-      }
+      const label = labelSprite(control.label, 0.018);
+      label.position.set(0.014, 0.01, 0);
+      group.add(label);
       this.pad.add(group);
       const widget = registerControl({
         id: control.id,
@@ -439,12 +437,12 @@ AFRAME.registerComponent('controller-proxy', {
         owner: this,
       });
       this.controls.push(widget);
-      this.walkArrows.push(group);
+      this.stickArrows.push(group);
     }
   },
 
   // Bars stay on the world axes and rings keep the hand's orientation.
-  // Both are centered on the controller. Walk arrows follow the view.
+  // Both are centered on the controller. Color arrows stay on the stick.
   layoutCluster() {
     const hand = this.el.object3D;
     this.cluster.quaternion.copy(hand.quaternion).invert();
@@ -455,7 +453,7 @@ AFRAME.registerComponent('controller-proxy', {
       this.heldRing.position.copy(this.frozenPos);
       this.heldRing.quaternion.copy(hand.quaternion);
     }
-    this.layoutWalk();
+    this.layoutColorPad();
     this.layoutRingLabels();
   },
 
@@ -482,30 +480,11 @@ AFRAME.registerComponent('controller-proxy', {
     }
   },
 
-  layoutWalk() {
-    if (!this.walkArrows) return;
-    const camera = this.el.sceneEl.camera;
-    if (!camera) return;
-    camera.getWorldDirection(this.forward);
-    this.forward.y = 0;
-    if (this.forward.lengthSq() < 1e-6) return;
-    this.forward.normalize();
-    this.right.crossVectors(this.forward, Y_AXIS).normalize();
-    this.pad.updateWorldMatrix(true, true);
-    this.pad.getWorldQuaternion(this.padQuat).invert();
-    for (const group of this.walkArrows) {
-      const stick = group.userData.control.stick;
-      if (stick.y !== 0) {
-        // Stick up points toward the controller tip, which is pad −Z.
-        const sign = stick.y > 0 ? -1 : 1;
-        this.labelScratch.set(0, 0, sign);
-      } else {
-        const direction = travelDirection(stick, this.forward, this.right);
-        this.labelScratch.set(direction.x, direction.y, direction.z).applyQuaternion(this.padQuat);
-        this.labelScratch.y = 0;
-      }
-      if (this.labelScratch.lengthSq() < 1e-6) continue;
-      this.labelScratch.normalize();
+  layoutColorPad() {
+    if (!this.stickArrows) return;
+    for (const group of this.stickArrows) {
+      const direction = colorStickDirection(group.userData.control.stick);
+      this.labelScratch.set(direction.x, direction.y, direction.z);
       group.position.copy(this.labelScratch).multiplyScalar(0.014);
       group.quaternion.setFromUnitVectors(Y_AXIS, this.labelScratch);
     }

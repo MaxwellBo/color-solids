@@ -1,4 +1,4 @@
-import { clamp01, linearToSrgb, oklabToLinearSrgb } from './oklab.js';
+import { clamp01, linearSrgbToOklab, linearToSrgb, oklabToLinearSrgb } from './oklab.js';
 import { BASE_Y, SCALE, VIEW_TARGET, labToWorld, worldToLab } from './scale.js';
 import { buildEdgeTubeArrays, buildShellArrays, buildSliceArrays } from './geometry.js';
 import {
@@ -7,7 +7,7 @@ import {
   PICK_FILL_RADIUS,
   PICK_RING_INNER,
   PICK_RING_OUTER,
-  selectPick,
+  selectColorTarget,
   STROKE_RADIUS,
 } from './brush.js';
 import {
@@ -33,6 +33,14 @@ import {
   sliceLabelPoint,
   sliceLightness,
 } from './lch.js';
+import {
+  controllerEngaged,
+  INITIAL_CONTROLLER_COLOR,
+  lchToLab,
+  lchToLinearRgb,
+  stepControllerColor,
+  zoomAxis,
+} from './controller-color.js';
 import { DESKTOP_BUTTONS } from './desktop-hands.js';
 import './controllers.js';
 import { bindSidePanel } from './side-panel.js';
@@ -649,8 +657,8 @@ AFRAME.registerComponent('oklab-rgb-solid', {
 
     const backing = document.createElement('a-plane');
     backing.setAttribute('width', 1.12);
-    backing.setAttribute('height', 2.36);
-    backing.setAttribute('position', { x: 0, y: -1.06, z: -0.02 });
+    backing.setAttribute('height', 2.95);
+    backing.setAttribute('position', { x: 0, y: -1.355, z: -0.02 });
     backing.setAttribute('material', { color: '#141820', shader: 'flat', opacity: 0.88 });
     this.panel.appendChild(backing);
 
@@ -682,20 +690,29 @@ AFRAME.registerComponent('oklab-rgb-solid', {
       'beside the slice.',
       '',
       'Hold the back trigger.',
-      'Its ray picks the solid.',
-      'A ring shows the color',
-      'where it meets, or',
-      'inside the volume,',
-      'with L, c, and h.',
-      'Let go and that reading',
-      'stays on this controller.',
+      'Its ray picks the solid',
+      'or a painted stroke.',
+      'The color stays on the',
+      'solid, with L, c, and h,',
+      'and on this controller.',
+      'That pick stops the',
+      'left-hand slice.',
       '',
       'Hold the trigger to paint',
       'with the picked color.',
       '',
-      'Left stick up grows',
-      'the solid. Down shrinks',
-      'it. Left and right walk.',
+      'Left stick sets a color',
+      'that stays on the solid.',
+      'Left and right change',
+      'hue. Up and down change',
+      'chroma. The index',
+      'trigger raises lightness',
+      'and the grip lowers it.',
+      'That slice stays until',
+      'a right-hand pick.',
+      '',
+      'Y on the left grows the',
+      'solid. X shrinks it.',
       'Flick the right stick',
       'sideways to turn.',
     ].join('\n'));
@@ -851,40 +868,119 @@ AFRAME.registerComponent('exhibit-ray', {
   },
 });
 
-AFRAME.registerComponent('locomotion', {
-  schema: { speed: { default: 1.25 } },
+AFRAME.registerComponent('color-stick', {
   init() {
     this.axisX = 0;
     this.axisY = 0;
-    this.forward = new THREE.Vector3();
-    this.right = new THREE.Vector3();
-    this.up = new THREE.Vector3(0, 1, 0);
-    this.el.addEventListener('thumbstickmoved', (event) => {
+    this.xHeld = false;
+    this.yHeld = false;
+    this.lightnessUp = false;
+    this.lightnessDown = false;
+    this.mode = false;
+    this.color = { ...INITIAL_CONTROLLER_COLOR };
+    this.levelPoint = new THREE.Vector3();
+    this.onStick = (event) => {
       this.axisX = event.detail.x;
       this.axisY = event.detail.y;
-    });
+      if (controllerEngaged(this.input())) this.mode = true;
+    };
+    this.onYDown = () => { this.yHeld = true; };
+    this.onYUp = () => { this.yHeld = false; };
+    this.onXDown = () => { this.xHeld = true; };
+    this.onXUp = () => { this.xHeld = false; };
+    this.onLightnessUp = () => {
+      this.lightnessUp = true;
+      this.mode = true;
+    };
+    this.onLightnessUpEnd = () => { this.lightnessUp = false; };
+    this.onLightnessDown = () => {
+      this.lightnessDown = true;
+      this.mode = true;
+    };
+    this.onLightnessDownEnd = () => { this.lightnessDown = false; };
+    this.handlers = {
+      thumbstickmoved: this.onStick,
+      ybuttondown: this.onYDown,
+      ybuttonup: this.onYUp,
+      xbuttondown: this.onXDown,
+      xbuttonup: this.onXUp,
+      triggerdown: this.onLightnessUp,
+      triggerup: this.onLightnessUpEnd,
+      gripdown: this.onLightnessDown,
+      gripup: this.onLightnessDownEnd,
+    };
+    for (const [event, handler] of Object.entries(this.handlers)) {
+      this.el.addEventListener(event, handler);
+    }
+    // The index trigger changes lightness. It must not also click the scene.
+    this.disarmCursor = () => {
+      this.el.setAttribute('cursor', {
+        fuse: false,
+        downEvents: ['color-stick-unused'],
+        upEvents: ['color-stick-unused'],
+      });
+    };
+    this.el.addEventListener('controllerconnected', this.disarmCursor);
+    this.el.addEventListener('controllermodelready', this.disarmCursor);
   },
+
+  input() {
+    return {
+      axisX: this.axisX,
+      axisY: this.axisY,
+      lightnessUp: this.lightnessUp,
+      lightnessDown: this.lightnessDown,
+    };
+  },
+
+  solid() {
+    const solid = document.getElementById('solid');
+    return solid && solid.components['oklab-rgb-solid'];
+  },
+
+  brush() {
+    const hand = document.getElementById('right-hand');
+    return hand && hand.components['quest-brush'];
+  },
+
+  // A right-hand pick replaces this color and drops the slice.
+  stopSlicing(lch) {
+    this.mode = false;
+    if (lch) this.color = { L: lch.L, c: lch.c, h: lch.h };
+    const solid = this.solid();
+    if (solid) solid.endControllerCut();
+  },
+
+  applyLevelSlice(solid, color) {
+    const lab = lchToLab(color.L, color.c, color.h);
+    const local = labToWorld(lab.L, lab.a, lab.b);
+    this.levelPoint.set(local.x, local.y, local.z);
+    solid.heldRoot.updateWorldMatrix(true, false);
+    solid.heldRoot.localToWorld(this.levelPoint);
+    const normal = levelCutNormal(solid.heldRoot.matrixWorld.elements);
+    solid.setControllerCut(this.levelPoint, normal);
+  },
+
   tick(_time, deltaMs) {
     const dt = deltaMs / 1000;
-    if (Math.abs(this.axisY) >= 0.18) {
-      const solid = document.getElementById('solid').components['oklab-rgb-solid'];
-      if (solid) solid.setHeldScale(nextHeldScale(solid.heldScale, this.axisY, dt));
+    const solid = this.solid();
+    const zoom = zoomAxis(this.xHeld, this.yHeld);
+    if (solid && zoom !== 0) solid.setHeldScale(nextHeldScale(solid.heldScale, zoom, dt));
+    if (controllerEngaged(this.input())) this.mode = true;
+    if (!this.mode || !solid || !solid.heldRoot) return;
+    this.color = stepControllerColor(this.color, this.input(), dt);
+    const brush = this.brush();
+    const manualSlice = brush && (brush.aHeld || brush.bHeld);
+    if (!manualSlice) this.applyLevelSlice(solid, this.color);
+    if (brush && !brush.gripHeld) brush.placeOnSolid(this.color);
+  },
+
+  remove() {
+    for (const [event, handler] of Object.entries(this.handlers)) {
+      this.el.removeEventListener(event, handler);
     }
-    if (Math.abs(this.axisX) < 0.18) return;
-    const camera = this.el.sceneEl.camera;
-    camera.getWorldDirection(this.forward);
-    this.forward.y = 0;
-    if (this.forward.lengthSq() < 1e-6) return;
-    this.forward.normalize();
-    this.right.crossVectors(this.forward, this.up);
-    const distance = this.data.speed * dt;
-    const world = document.getElementById('world').object3D;
-    world.position.addScaledVector(this.right, -this.axisX * distance);
-    const horizontal = Math.hypot(world.position.x, world.position.z);
-    if (horizontal > 12) {
-      world.position.x *= 12 / horizontal;
-      world.position.z *= 12 / horizontal;
-    }
+    this.el.removeEventListener('controllerconnected', this.disarmCursor);
+    this.el.removeEventListener('controllermodelready', this.disarmCursor);
   },
 });
 
@@ -999,6 +1095,7 @@ AFRAME.registerComponent('quest-brush', {
     this.controllerReadout.position.set(0.2, 0.14, -0.08);
     this.el.object3D.add(this.controllerReadout);
     this.pickedLch = null;
+    this.latchedLch = null;
     this.cameraPosition = new THREE.Vector3();
     this.readoutRight = new THREE.Vector3();
     this.readoutUp = new THREE.Vector3();
@@ -1028,8 +1125,11 @@ AFRAME.registerComponent('quest-brush', {
     };
     this.onGripUp = () => {
       this.gripHeld = false;
-      this.pickMarker.visible = false;
-      this.pickReadout.visible = false;
+      if (this.latchedLch) this.placeOnSolid(this.latchedLch);
+      else {
+        this.pickMarker.visible = false;
+        this.pickReadout.visible = false;
+      }
       this.showControllerReadout();
     };
     this.onTriggerDown = () => {
@@ -1062,6 +1162,7 @@ AFRAME.registerComponent('quest-brush', {
       triggerup: this.onTriggerUp,
     };
     for (const button of DESKTOP_BUTTONS) {
+      if (button.hand !== 'right') continue;
       this.el.addEventListener(button.down, this.buttonHandlers[button.down]);
       this.el.addEventListener(button.up, this.buttonHandlers[button.up]);
     }
@@ -1077,8 +1178,33 @@ AFRAME.registerComponent('quest-brush', {
   tick() {
     this.followSlice();
     if (this.gripHeld) this.syncPick();
+    else this.holdLatchedMarker();
     if (this.painting) this.syncPaint();
     this.syncLine();
+  },
+
+  colorStick() {
+    const hand = document.getElementById('left-hand');
+    return hand && hand.components['color-stick'];
+  },
+
+  // After a pick, the marker keeps sitting on that color in the solid.
+  // Controller mode places its own marker while it is slicing.
+  holdLatchedMarker() {
+    const stick = this.colorStick();
+    if (stick && stick.mode) return;
+    if (!this.latchedLch || this.gripHeld) return;
+    this.placeOnSolid(this.latchedLch);
+  },
+
+  placeOnSolid(lch) {
+    const solid = this.solid();
+    if (!solid || !solid.heldRoot || !lch) return;
+    const lab = lchToLab(lch.L, lch.c, lch.h);
+    const local = labToWorld(lab.L, lab.a, lab.b);
+    solid.heldRoot.updateWorldMatrix(true, false);
+    const world = solid.heldRoot.localToWorld(new THREE.Vector3(local.x, local.y, local.z));
+    this.showPick(world, lchToLinearRgb(lch), lch);
   },
 
   followSlice() {
@@ -1152,19 +1278,15 @@ AFRAME.registerComponent('quest-brush', {
   // is the ray's start. From outside, it is the first point the ray meets.
   syncPick() {
     const solid = this.solid();
-    if (!solid || !solid.shellMesh) {
-      this.pickMarker.visible = false;
-      return null;
-    }
+    if (!solid || !solid.shellMesh) return null;
     this.readAim();
     const sample = this.sampleRay(solid);
-    if (!sample) {
-      this.pickMarker.visible = false;
-      this.pickReadout.visible = false;
-      return null;
-    }
-    const lab = solid.labAtWorldPoint(sample.point);
-    this.showPick(sample.point, sample.rgb, lab ? labToLch(lab.L, lab.a, lab.b) : null);
+    if (!sample || !sample.lch) return null;
+    this.latchedLch = { L: sample.lch.L, c: sample.lch.c, h: sample.lch.h };
+    const stick = this.colorStick();
+    if (stick) stick.stopSlicing(this.latchedLch);
+    if (sample.onStroke) this.placeOnSolid(this.latchedLch);
+    else this.showPick(sample.point, sample.rgb, this.latchedLch);
     return sample.rgb;
   },
 
@@ -1190,16 +1312,50 @@ AFRAME.registerComponent('quest-brush', {
       const rgb = solid.colorAtWorldPoint(hit.point);
       return {
         point: hit.point,
+        distance: hit.distance,
         color: Boolean(rgb),
         onSolidSide: this.hitOnSolidSide(solid, hit),
         rgb,
       };
     });
-    const choice = selectPick(Boolean(here), hits);
+    const strokeTargets = this.paintRoot ? this.paintRoot.children : [];
+    if (strokeTargets.length) this.paintRoot.updateWorldMatrix(true, true);
+    const rawStrokes = strokeTargets.length
+      ? this.aimRay.intersectObjects(strokeTargets, false)
+      : [];
+    const strokeHits = rawStrokes.map((hit) => ({
+      point: hit.point,
+      distance: hit.distance,
+      color: Boolean(hit.object.userData.paintRgb),
+      rgb: hit.object.userData.paintRgb,
+    }));
+    const choice = selectColorTarget(Boolean(here), hits, strokeHits);
     if (!choice) return null;
-    if (choice.source === 'inside') return { point: this.tip.clone(), rgb: here };
+    if (choice.source === 'inside') {
+      const lab = solid.labAtWorldPoint(this.tip);
+      return {
+        point: this.tip.clone(),
+        rgb: here,
+        lch: lab ? labToLch(lab.L, lab.a, lab.b) : null,
+      };
+    }
+    if (choice.source === 'stroke') {
+      const hit = strokeHits[choice.index];
+      const lab = linearSrgbToOklab(hit.rgb.r, hit.rgb.g, hit.rgb.b);
+      return {
+        point: hit.point.clone(),
+        rgb: { r: clamp01(hit.rgb.r), g: clamp01(hit.rgb.g), b: clamp01(hit.rgb.b) },
+        lch: labToLch(lab.L, lab.a, lab.b),
+        onStroke: true,
+      };
+    }
     const hit = hits[choice.index];
-    return { point: hit.point.clone(), rgb: hit.rgb };
+    const lab = solid.labAtWorldPoint(hit.point);
+    return {
+      point: hit.point.clone(),
+      rgb: hit.rgb,
+      lch: lab ? labToLch(lab.L, lab.a, lab.b) : null,
+    };
   },
 
   hitOnSolidSide(solid, hit) {
@@ -1230,7 +1386,7 @@ AFRAME.registerComponent('quest-brush', {
         .addScaledVector(this.readoutRight, 0.07)
         .addScaledVector(this.readoutUp, 0.02);
       this.pickReadout.visible = true;
-      this.controllerReadout.visible = false;
+      this.showControllerReadout();
     }
   },
 
@@ -1273,6 +1429,7 @@ AFRAME.registerComponent('quest-brush', {
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(STROKE_RADIUS, 14, 10), material);
     mesh.position.copy(localPoint);
     mesh.name = 'paint-stroke';
+    mesh.userData.paintRgb = { r: this.brush.r, g: this.brush.g, b: this.brush.b };
     this.paintRoot.add(mesh);
     this.stroke = { points: [localPoint.clone()], mesh };
   },
@@ -1336,6 +1493,7 @@ AFRAME.registerComponent('quest-brush', {
 
   remove() {
     for (const button of DESKTOP_BUTTONS) {
+      if (button.hand !== 'right') continue;
       this.el.removeEventListener(button.down, this.buttonHandlers[button.down]);
       this.el.removeEventListener(button.up, this.buttonHandlers[button.up]);
     }

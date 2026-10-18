@@ -31,6 +31,28 @@ export function selectPick(originInside, hits) {
   return { source: 'ray', index };
 }
 
+function firstDistance(hits, accept) {
+  for (let index = 0; index < hits.length; index++) {
+    if (!accept(hits[index])) continue;
+    const distance = Number.isFinite(hits[index].distance) ? hits[index].distance : 0;
+    return { index, distance };
+  }
+  return null;
+}
+
+// A painted stroke in front of the solid is the color the ray is touching.
+// Inside the solid, the ray's start still wins.
+export function selectColorTarget(originInside, solidHits, strokeHits = []) {
+  if (originInside) return { source: 'inside' };
+  const solid = firstDistance(solidHits, (hit) => hit.color && hit.onSolidSide);
+  const stroke = firstDistance(strokeHits, (hit) => hit.color);
+  if (stroke && (!solid || stroke.distance < solid.distance)) {
+    return { source: 'stroke', index: stroke.index };
+  }
+  if (solid) return { source: 'solid', index: solid.index };
+  return null;
+}
+
 function normalize(vector) {
   const length = Math.hypot(vector.x, vector.y, vector.z) || 1;
   return { x: vector.x / length, y: vector.y / length, z: vector.z / length };

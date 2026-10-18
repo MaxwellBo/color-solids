@@ -23,20 +23,24 @@ export function handPose(hand) {
 // The clickable stand-ins emit the same events a Quest controller emits.
 // Toggles stand in for holding the button down.
 export const DESKTOP_BUTTONS = [
+  { id: 'btn-zoom-in', hand: 'left', down: 'ybuttondown', up: 'ybuttonup' },
+  { id: 'btn-zoom-out', hand: 'left', down: 'xbuttondown', up: 'xbuttonup' },
+  { id: 'btn-lightness-up', hand: 'left', down: 'triggerdown', up: 'triggerup' },
+  { id: 'btn-lightness-down', hand: 'left', down: 'gripdown', up: 'gripup' },
   { id: 'btn-a', hand: 'right', down: 'abuttondown', up: 'abuttonup' },
   { id: 'btn-b', hand: 'right', down: 'bbuttondown', up: 'bbuttonup' },
   { id: 'btn-grip', hand: 'right', down: 'gripdown', up: 'gripup' },
   { id: 'btn-trigger', hand: 'right', down: 'triggerdown', up: 'triggerup' },
 ];
 
-// Left stick up grows the held solid and down shrinks it. Left and right
-// still walk. Right stick flicks sideways to snap-turn. Positive x is
-// right, positive y is up, matching the headset handlers.
+// Left stick left and right change hue, up and down change chroma. Right
+// stick flicks sideways to snap-turn. Positive x is right, positive y is up,
+// matching the headset handlers.
 export const STICK_CONTROLS = [
-  { id: 'btn-scale-up', hand: 'left', axis: 'y', value: 1 },
-  { id: 'btn-scale-down', hand: 'left', axis: 'y', value: -1 },
-  { id: 'btn-walk-left', hand: 'left', axis: 'x', value: -1 },
-  { id: 'btn-walk-right', hand: 'left', axis: 'x', value: 1 },
+  { id: 'btn-hue-left', hand: 'left', axis: 'x', value: -1, label: 'H−' },
+  { id: 'btn-hue-right', hand: 'left', axis: 'x', value: 1, label: 'H+' },
+  { id: 'btn-chroma-down', hand: 'left', axis: 'y', value: -1, label: 'C−' },
+  { id: 'btn-chroma-up', hand: 'left', axis: 'y', value: 1, label: 'C+' },
   { id: 'btn-turn-left', hand: 'right', flick: -1 },
   { id: 'btn-turn-right', hand: 'right', flick: 1 },
 ];
