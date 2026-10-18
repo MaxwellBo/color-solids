@@ -24,6 +24,7 @@ import {
   sliceClearsOnRelease,
   worldCutFromLocal,
 } from './hand.js';
+import { cameraPickWins, colorFromCameraPixel, colorFromLinear, imagePixel } from './camera-pick.js';
 import { installScenePassthrough } from './passthrough.js';
 import {
   createReadout,
@@ -1188,11 +1189,23 @@ AFRAME.registerComponent('quest-brush', {
 
   // The back trigger casts this ray. Inside the solid, the closest color
   // is the ray's start. From outside, it is the first point the ray meets.
+  // A surface closer than the model is read from the camera instead.
   syncPick() {
     const solid = this.solid();
     if (!solid || !solid.shellMesh) return null;
     this.readAim();
     const sample = this.sampleRay(solid);
+    const outside = this.outsideHit(solid);
+    const modelDistance = sample ? sample.distance : Infinity;
+    if (outside && cameraPickWins(outside.distance, modelDistance)) {
+      const ready = this.surfaceColor(outside);
+      if (!ready) return null;
+      this.latchedLch = { L: ready.lch.L, c: ready.lch.c, h: ready.lch.h };
+      const stick = this.colorStick();
+      if (stick) stick.stopSlicing(this.latchedLch);
+      this.placeOnSolid(this.latchedLch);
+      return ready.rgb;
+    }
     if (!sample || !sample.lch) return null;
     this.latchedLch = { L: sample.lch.L, c: sample.lch.c, h: sample.lch.h };
     const stick = this.colorStick();
@@ -1200,6 +1213,47 @@ AFRAME.registerComponent('quest-brush', {
     if (sample.onStroke) this.placeOnSolid(this.latchedLch);
     else this.showPick(sample.point, sample.rgb, this.latchedLch);
     return sample.rgb;
+  },
+
+  // The first visible mesh that is not the color solid or a painted stroke.
+  outsideHit(solid) {
+    if (!this.aimRay) this.aimRay = new THREE.Raycaster();
+    this.aimRay.set(this.tip, this.forward, 0, 8);
+    const hits = this.aimRay.intersectObject(this.el.sceneEl.object3D, true);
+    const solidObject = solid.el.object3D;
+    for (const hit of hits) {
+      if (this.cameraSurface(hit.object, solidObject)) return hit;
+    }
+    return null;
+  },
+
+  cameraSurface(object, solidObject) {
+    const material = object.material;
+    if (material && !Array.isArray(material) && material.transparent && material.opacity < 0.9) return false;
+    let node = object;
+    while (node) {
+      if (node.visible === false) return false;
+      if (node === solidObject || node === this.paintRoot || node === this.el.object3D) return false;
+      if (node.isLine) return false;
+      if (node.name === 'pick-marker' || node.name === 'pick-readout' || node.name === 'controller-readout') {
+        return false;
+      }
+      node = node.parent;
+    }
+    return true;
+  },
+
+  // The color that surface shows to the camera: its texture, or its flat color.
+  surfaceColor(hit) {
+    const material = Array.isArray(hit.object.material) ? hit.object.material[0] : hit.object.material;
+    if (!material) return null;
+    const map = material.map;
+    if (map && map.image && hit.uv) {
+      const texel = imagePixel(map.image, hit.uv.x, hit.uv.y, map.flipY !== false);
+      if (texel) return colorFromCameraPixel(texel[0], texel[1], texel[2], texel[3]);
+    }
+    if (!material.color) return null;
+    return colorFromLinear(material.color.r, material.color.g, material.color.b);
   },
 
   sampleRay(solid) {
@@ -1253,6 +1307,7 @@ AFRAME.registerComponent('quest-brush', {
         point: this.tip.clone(),
         rgb: here,
         lch: lab ? labToLch(lab.L, lab.a, lab.b) : null,
+        distance: 0,
       };
     }
     if (choice.source === 'stroke') {
@@ -1263,6 +1318,7 @@ AFRAME.registerComponent('quest-brush', {
         rgb: { r: clamp01(hit.rgb.r), g: clamp01(hit.rgb.g), b: clamp01(hit.rgb.b) },
         lch: labToLch(lab.L, lab.a, lab.b),
         onStroke: true,
+        distance: hit.distance,
       };
     }
     const hit = hits[choice.index];
@@ -1271,6 +1327,7 @@ AFRAME.registerComponent('quest-brush', {
       point: hit.point.clone(),
       rgb: hit.rgb,
       lch: lab ? labToLch(lab.L, lab.a, lab.b) : null,
+      distance: hit.distance,
     };
   },
 
