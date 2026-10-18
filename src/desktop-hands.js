@@ -33,14 +33,14 @@ export const DESKTOP_BUTTONS = [
   { id: 'btn-trigger', hand: 'right', down: 'triggerdown', up: 'triggerup' },
 ];
 
-// Left stick left and right change hue, up and down change chroma. Right
-// stick flicks sideways to snap-turn. Positive x is right, positive y is up,
+// Left stick left and right sample a, up and down sample b. Right stick
+// flicks sideways to snap-turn. Positive x is right, positive y is up,
 // matching the headset handlers.
 export const STICK_CONTROLS = [
-  { id: 'btn-hue-left', hand: 'left', axis: 'x', value: -1, label: 'H−' },
-  { id: 'btn-hue-right', hand: 'left', axis: 'x', value: 1, label: 'H+' },
-  { id: 'btn-chroma-down', hand: 'left', axis: 'y', value: -1, label: 'C−' },
-  { id: 'btn-chroma-up', hand: 'left', axis: 'y', value: 1, label: 'C+' },
+  { id: 'btn-a-left', hand: 'left', axis: 'x', value: -1, label: 'a−' },
+  { id: 'btn-a-right', hand: 'left', axis: 'x', value: 1, label: 'a+' },
+  { id: 'btn-b-down', hand: 'left', axis: 'y', value: -1, label: 'b−' },
+  { id: 'btn-b-up', hand: 'left', axis: 'y', value: 1, label: 'b+' },
   { id: 'btn-turn-left', hand: 'right', flick: -1 },
   { id: 'btn-turn-right', hand: 'right', flick: 1 },
 ];

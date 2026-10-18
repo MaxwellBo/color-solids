@@ -385,7 +385,7 @@ AFRAME.registerComponent('controller-proxy', {
 
   },
 
-  // Hue and chroma arrows sit on the left thumbstick. Turning stays on the side panel,
+  // a and b arrows sit on the left thumbstick. Turning stays on the side panel,
   // so the right controller has no turn arcs.
   buildStickPad() {
     if (this.data.hand !== 'left') {

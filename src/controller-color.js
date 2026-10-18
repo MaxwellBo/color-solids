@@ -1,14 +1,13 @@
 import { clamp01, inGamut, oklabToLinearSrgb } from './oklab.js';
 
-// Degrees of hue, and Oklab chroma and lightness, per second at full input.
-export const HUE_RATE = 90;
-export const CHROMA_RATE = 0.12;
+// Oklab a and b, and lightness, per second at full input.
+export const AB_RATE = 0.15;
 export const LIGHTNESS_RATE = 0.25;
 export const STICK_DEADZONE = 0.18;
 const MAX_CHROMA = 0.4;
 
 // A visible starting color, inside the gamut, until the stick or a pick moves it.
-export const INITIAL_CONTROLLER_COLOR = { L: 0.7, c: 0.1, h: 30 };
+export const INITIAL_CONTROLLER_COLOR = { L: 0.7, a: 0.086602540378, b: 0.05 };
 
 export function lchToLab(L, c, h) {
   const rad = (h * Math.PI) / 180;
@@ -45,10 +44,6 @@ function clamp(value, min, max) {
   return value;
 }
 
-function wrapHue(h) {
-  return ((h % 360) + 360) % 360;
-}
-
 export function stickPastDeadzone(axis) {
   return Math.abs(axis) >= STICK_DEADZONE;
 }
@@ -65,8 +60,23 @@ export function zoomAxis(xHeld, yHeld) {
   return 0;
 }
 
-// Right on the stick raises hue, up raises chroma. The index trigger raises
-// lightness and the grip lowers it. Chroma stays inside the gamut.
+// Keep a and b, pulling them toward neutral until the color is inside sRGB.
+export function clampLabToGamut(L, a, b) {
+  if (inGamut(oklabToLinearSrgb(L, a, b))) return { L, a, b };
+  const span = Math.hypot(a, b);
+  if (span < 1e-8) return { L, a: 0, b: 0 };
+  let low = 0;
+  let high = 1;
+  for (let step = 0; step < 16; step++) {
+    const mid = (low + high) / 2;
+    if (inGamut(oklabToLinearSrgb(L, a * mid, b * mid))) low = mid;
+    else high = mid;
+  }
+  return { L, a: a * low, b: b * low };
+}
+
+// Right on the stick raises a, up raises b. The index trigger raises
+// lightness and the grip lowers it. The sample stays inside the gamut.
 export function stepControllerColor(color, input, deltaSeconds) {
   const axisX = stickPastDeadzone(input.axisX) ? input.axisX : 0;
   const axisY = stickPastDeadzone(input.axisY) ? input.axisY : 0;
@@ -74,8 +84,7 @@ export function stepControllerColor(color, input, deltaSeconds) {
   if (input.lightnessUp) lightness += 1;
   if (input.lightnessDown) lightness -= 1;
   const L = clamp(color.L + lightness * LIGHTNESS_RATE * deltaSeconds, 0, 1);
-  const h = wrapHue(color.h + axisX * HUE_RATE * deltaSeconds);
-  const cap = maxChroma(L, h);
-  const c = clamp(color.c + axisY * CHROMA_RATE * deltaSeconds, 0, cap);
-  return { L, c, h };
+  const a = color.a + axisX * AB_RATE * deltaSeconds;
+  const b = color.b + axisY * AB_RATE * deltaSeconds;
+  return clampLabToGamut(L, a, b);
 }

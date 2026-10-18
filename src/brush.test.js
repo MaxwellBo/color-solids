@@ -6,6 +6,7 @@ import {
   PICK_FILL_RADIUS,
   PICK_RING_INNER,
   PICK_RING_OUTER,
+  interiorSampleCounts,
   selectColorTarget,
   selectPick,
 } from './brush.js';
@@ -28,6 +29,19 @@ test('a pick ray uses the start when it is already inside, otherwise the first s
   assert.deepEqual(selectPick(true, hits), { source: 'inside' });
   assert.deepEqual(selectPick(false, hits), { source: 'ray', index: 1 });
   assert.equal(selectPick(false, [{ color: false, onSolidSide: true }]), null);
+});
+
+test('a pick on an open slice uses the cut face, not a point in the cut-away half', () => {
+  assert.equal(interiorSampleCounts(true, true), true);
+  assert.equal(interiorSampleCounts(true, false), false);
+  assert.equal(interiorSampleCounts(false, true), false);
+  const hits = [
+    { color: true, onSolidSide: false, distance: 0.2 },
+    { color: true, onSolidSide: true, distance: 0.35, section: true },
+    { color: true, onSolidSide: true, distance: 0.8 },
+  ];
+  assert.deepEqual(selectColorTarget(false, hits, []), { source: 'solid', index: 1 });
+  assert.deepEqual(selectColorTarget(true, hits, []), { source: 'inside' });
 });
 
 test('a painted stroke in front of the solid is the color the ray picks', () => {
