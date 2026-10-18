@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { labToWorld } from './scale.js';
 import {
+  CONTROLLER_LCH_OFFSET,
   formatLch,
   formatLightness,
   labToLch,
@@ -26,6 +27,12 @@ test('oklch reads chroma and hue from a and b', () => {
   assert.equal(formatLightness(0.5), 'L 0.50');
   assert.equal(formatChromaHue(red), `c ${red.c.toFixed(3)}\nh ${Math.round(red.h)}°`);
   assert.match(formatLch(red), /^L 0\.63\nc 0\.258\nh 29°$/);
+});
+
+test('the Lch label sits against the right controller', () => {
+  const reach = Math.hypot(CONTROLLER_LCH_OFFSET.x, CONTROLLER_LCH_OFFSET.y, CONTROLLER_LCH_OFFSET.z);
+  assert.ok(reach < 0.09);
+  assert.ok(CONTROLLER_LCH_OFFSET.x > 0.05);
 });
 
 test('the slice label sits just outside the slice, in the plane, at that lightness', () => {
