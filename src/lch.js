@@ -20,6 +20,10 @@ export function formatLch({ L, c, h }) {
   return `L ${L.toFixed(2)}\nc ${c.toFixed(3)}\nh ${Math.round(h)}°`;
 }
 
+// Hand-local metres. The label is 9cm wide, so its inner edge sits just off
+// the right side of the controller face.
+export const CONTROLLER_LCH_OFFSET = { x: 0.075, y: 0.02, z: -0.02 };
+
 // c and h at the picked color. Lightness is the slice label, not this one.
 export function formatChromaHue({ c, h }) {
   return `c ${c.toFixed(3)}\nh ${Math.round(h)}°`;

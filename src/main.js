@@ -28,6 +28,7 @@ import { installScenePassthrough } from './passthrough.js';
 import {
   createReadout,
   formatChromaHue,
+  CONTROLLER_LCH_OFFSET,
   formatLch,
   formatLightness,
   labToLch,
@@ -999,7 +1000,11 @@ AFRAME.registerComponent('quest-brush', {
     this.el.sceneEl.object3D.add(this.pickReadout);
     this.controllerReadout = createReadout(THREE, { width: 512, height: 320, scale: 0.09 });
     this.controllerReadout.name = 'controller-readout';
-    this.controllerReadout.position.set(0.2, 0.14, -0.08);
+    this.controllerReadout.position.set(
+      CONTROLLER_LCH_OFFSET.x,
+      CONTROLLER_LCH_OFFSET.y,
+      CONTROLLER_LCH_OFFSET.z,
+    );
     this.el.object3D.add(this.controllerReadout);
     this.pickedLch = null;
     this.latchedLch = null;
