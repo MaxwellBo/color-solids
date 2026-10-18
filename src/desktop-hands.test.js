@@ -66,19 +66,21 @@ test('a drag ray meets the camera-facing plane', () => {
 });
 
 test('desktop buttons emit the quest controller events', () => {
-  assert.deepEqual(
-    DESKTOP_BUTTONS.map((button) => button.down),
-    ['abuttondown', 'bbuttondown', 'gripdown', 'triggerdown'],
-  );
-  assert.deepEqual(
-    DESKTOP_BUTTONS.map((button) => button.up),
-    ['abuttonup', 'bbuttonup', 'gripup', 'triggerup'],
-  );
+  const right = DESKTOP_BUTTONS.filter((button) => button.hand === 'right');
+  const left = DESKTOP_BUTTONS.filter((button) => button.hand === 'left');
+  assert.deepEqual(right.map((button) => button.down), ['abuttondown', 'bbuttondown', 'gripdown', 'triggerdown']);
+  assert.deepEqual(right.map((button) => button.up), ['abuttonup', 'bbuttonup', 'gripup', 'triggerup']);
+  assert.deepEqual(left.map((button) => button.id), [
+    'btn-zoom-in',
+    'btn-zoom-out',
+    'btn-lightness-up',
+    'btn-lightness-down',
+  ]);
   assert.deepEqual(togglePress(false), { pressed: true, event: 'down' });
   assert.deepEqual(togglePress(true), { pressed: false, event: 'up' });
 });
 
-test('walk toggles share the headset stick axes, and a turn is a sideways flick', () => {
+test('color toggles share the headset stick axes, and a turn is a sideways flick', () => {
   let axes = { x: 0, y: 0 };
   axes = applyStickToggle(axes, 'y', 1, true);
   axes = applyStickToggle(axes, 'x', -1, true);

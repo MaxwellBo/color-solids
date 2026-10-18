@@ -22,10 +22,14 @@ const BUTTON_LABEL = {
   'btn-b': 'B',
   'btn-grip': 'Pick',
   'btn-trigger': 'Paint',
-  'btn-scale-up': 'Bigger',
-  'btn-scale-down': 'Smaller',
-  'btn-walk-left': 'Left',
-  'btn-walk-right': 'Right',
+  'btn-zoom-in': 'Zoom in',
+  'btn-zoom-out': 'Zoom out',
+  'btn-lightness-up': 'Lightness up',
+  'btn-lightness-down': 'Lightness down',
+  'btn-hue-left': 'Hue left',
+  'btn-hue-right': 'Hue right',
+  'btn-chroma-up': 'Chroma up',
+  'btn-chroma-down': 'Chroma down',
   'btn-turn-left': 'Turn left',
   'btn-turn-right': 'Turn right',
 };
@@ -35,8 +39,11 @@ const HANDS = [
     name: 'left',
     title: 'Left controller',
     groups: [
-      { title: 'Size', controls: STICK_CONTROLS.filter((item) => item.hand === 'left' && item.axis === 'y') },
-      { title: 'Walk', controls: STICK_CONTROLS.filter((item) => item.hand === 'left' && item.axis === 'x') },
+      { title: 'Zoom', controls: DESKTOP_BUTTONS.filter((item) => item.id.startsWith('btn-zoom')) },
+      { title: 'Color', controls: [
+        ...STICK_CONTROLS.filter((item) => item.hand === 'left'),
+        ...DESKTOP_BUTTONS.filter((item) => item.id.startsWith('btn-lightness')),
+      ] },
     ],
   },
   {

@@ -18,7 +18,7 @@ import {
   worldCutPlanes,
 } from './hand.js';
 
-test('left stick up grows the held solid and down shrinks it', () => {
+test('a positive zoom grows the held solid and a negative zoom shrinks it', () => {
   const grown = nextHeldScale(HAND_SCALE, 1, 1);
   const shrunk = nextHeldScale(HAND_SCALE, -1, 1);
   assert.ok(grown > HAND_SCALE);
