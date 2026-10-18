@@ -3,6 +3,18 @@
 // runs along its local +Y, so rotating -90° about X lays that axis along the
 // aim: held upright, white is up. The black tip then sits just past the tip.
 export const HAND_SCALE = 0.2;
+// How large the held solid may get. Up on the left stick grows it, down shrinks it.
+export const HELD_SCALE_MIN = 0.06;
+export const HELD_SCALE_MAX = 0.8;
+// Full deflection doubles the solid in a little over a second.
+export const HELD_SCALE_RATE = 0.65;
+
+export function nextHeldScale(scale, axisY, deltaSeconds) {
+  const next = scale * Math.exp(axisY * HELD_SCALE_RATE * deltaSeconds);
+  if (next < HELD_SCALE_MIN) return HELD_SCALE_MIN;
+  if (next > HELD_SCALE_MAX) return HELD_SCALE_MAX;
+  return next;
+}
 export const HAND_OFFSET_Z = -0.02;
 export const HAND_ROTATION_X = -Math.PI / 2;
 

@@ -29,11 +29,12 @@ export const DESKTOP_BUTTONS = [
   { id: 'btn-trigger', hand: 'right', down: 'triggerdown', up: 'triggerup' },
 ];
 
-// Left stick walks. Right stick flicks sideways to snap-turn. Positive x is
-// right, positive y is forward, matching the headset handlers.
+// Left stick up grows the held solid and down shrinks it. Left and right
+// still walk. Right stick flicks sideways to snap-turn. Positive x is
+// right, positive y is up, matching the headset handlers.
 export const STICK_CONTROLS = [
-  { id: 'btn-walk-forward', hand: 'left', axis: 'y', value: 1 },
-  { id: 'btn-walk-back', hand: 'left', axis: 'y', value: -1 },
+  { id: 'btn-scale-up', hand: 'left', axis: 'y', value: 1 },
+  { id: 'btn-scale-down', hand: 'left', axis: 'y', value: -1 },
   { id: 'btn-walk-left', hand: 'left', axis: 'x', value: -1 },
   { id: 'btn-walk-right', hand: 'left', axis: 'x', value: 1 },
   { id: 'btn-turn-left', hand: 'right', flick: -1 },
