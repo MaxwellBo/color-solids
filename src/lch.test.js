@@ -5,10 +5,13 @@ import {
   formatLch,
   formatLightness,
   labToLch,
+  formatChromaHue,
+  gamutRadiusAt,
   sliceLabelPoint,
+  sliceLabelReach,
   sliceLevel,
   sliceLightness,
-  SLICE_LABEL_REACH,
+  SLICE_LABEL_CLEARANCE,
 } from './lch.js';
 
 test('oklch reads chroma and hue from a and b', () => {
@@ -21,23 +24,30 @@ test('oklch reads chroma and hue from a and b', () => {
   const blue = labToLch(0.45, -0.03, -0.31);
   assert.ok(blue.h > 180);
   assert.equal(formatLightness(0.5), 'L 0.50');
+  assert.equal(formatChromaHue(red), `c ${red.c.toFixed(3)}\nh ${Math.round(red.h)}°`);
   assert.match(formatLch(red), /^L 0\.63\nc 0\.258\nh 29°$/);
 });
 
-test('the slice label sits outside the solid, in the plane, at that lightness', () => {
+test('the slice label sits just outside the slice, in the plane, at that lightness', () => {
   const onPlane = labToWorld(0.42, 0.08, -0.05);
   const normal = { x: 0, y: 1, z: 0 };
   const level = sliceLevel(onPlane, normal);
   assert.ok(Math.abs(sliceLightness(onPlane, normal) - 0.42) < 1e-9);
   assert.ok(Math.abs(level.y - onPlane.y) < 1e-9);
-  const label = sliceLabelPoint(onPlane, normal);
+  const half = 0.1;
+  const reach = sliceLabelReach(0.42, half);
+  const label = sliceLabelPoint(onPlane, normal, reach);
   const along = (label.x - onPlane.x) * normal.x
     + (label.y - onPlane.y) * normal.y
     + (label.z - onPlane.z) * normal.z;
   assert.ok(Math.abs(along) < 1e-9);
   const out = Math.hypot(label.x - level.x, label.y - level.y, label.z - level.z);
-  assert.ok(Math.abs(out - SLICE_LABEL_REACH) < 1e-9);
+  const radius = gamutRadiusAt(0.42);
+  assert.ok(Math.abs(out - (radius + half + SLICE_LABEL_CLEARANCE)) < 1e-9);
+  assert.ok(out > radius);
+  assert.ok(out < 1.2);
   assert.ok(Math.abs(label.y - level.y) < 1e-9);
+  assert.ok(sliceLabelReach(0.02, half) < reach);
 });
 
 test('a tilted blade still labels the lightness where it crosses neutral', () => {

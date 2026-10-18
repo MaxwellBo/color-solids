@@ -91,7 +91,7 @@ test('buttons sit on the controller in the order the Quest face uses', () => {
   assert.ok(left[0].position.x === -widgets[0].position.x);
 });
 
-test('hue and chroma arrows point across and along the stick', () => {
+test('a and b arrows point across and along the stick', () => {
   assert.deepEqual(colorStickDirection({ x: 0, y: 1 }), { x: 0, y: 0, z: -1 });
   assert.deepEqual(colorStickDirection({ x: 0, y: -1 }), { x: 0, y: 0, z: 1 });
   assert.deepEqual(colorStickDirection({ x: 1, y: 0 }), { x: 1, y: 0, z: 0 });

@@ -27,9 +27,12 @@ import { installScenePassthrough } from './passthrough.js';
 import { EXHIBIT_VERSION } from './version.js';
 import {
   createReadout,
+  formatChromaHue,
   formatLch,
   formatLightness,
   labToLch,
+  sliceLabelReach,
+  SLICE_LABEL_WORLD_WIDTH,
   sliceLabelPoint,
   sliceLightness,
 } from './lch.js';
@@ -213,7 +216,6 @@ AFRAME.registerComponent('oklab-rgb-solid', {
     this.cutLocalNormal = new THREE.Vector3(0, 1, 0);
     this.sliceReadout = createReadout(THREE, { width: 512, height: 160, scale: 0.14 });
     this.sliceReadout.name = 'slice-readout';
-    this.el.sceneEl.object3D.add(this.sliceReadout);
     this.yAxis = new THREE.Vector3(0, 1, 0);
 
     const renderer = this.el.sceneEl.renderer;
@@ -226,6 +228,7 @@ AFRAME.registerComponent('oklab-rgb-solid', {
 
     this.heldRoot = new THREE.Group();
     this.heldRoot.name = 'oklab-held';
+    this.heldRoot.add(this.sliceReadout);
     root.add(this.heldRoot);
 
     const shellArrays = buildShellArrays(SHELL_SEGMENTS);
@@ -495,11 +498,13 @@ AFRAME.registerComponent('oklab-rgb-solid', {
       this.sliceReadout.visible = false;
       return;
     }
-    const label = sliceLabelPoint(point, normal);
-    this.sliceReadout.userData.setText(formatLightness(sliceLightness(point, normal)));
-    this.heldRoot.updateWorldMatrix(true, false);
+    const parentScale = Math.abs(this.heldRoot.scale.x) || 1;
+    const localWidth = SLICE_LABEL_WORLD_WIDTH / parentScale;
+    this.sliceReadout.scale.set(localWidth, localWidth * (160 / 512), 1);
+    const lightness = sliceLightness(point, normal);
+    const label = sliceLabelPoint(point, normal, sliceLabelReach(lightness, localWidth / 2));
+    this.sliceReadout.userData.setText(formatLightness(lightness));
     this.sliceReadout.position.set(label.x, label.y, label.z);
-    this.heldRoot.localToWorld(this.sliceReadout.position);
     this.sliceReadout.visible = true;
   },
 
@@ -686,15 +691,16 @@ AFRAME.registerComponent('oklab-rgb-solid', {
       '',
       'Tap A or B while',
       'pointing away to close',
-      'the cut. Its L floats',
-      'beside the slice.',
+      'the cut. L floats',
+      'beside the slice, and',
+      'only while it is open.',
       '',
       'Hold the back trigger.',
       'Its ray picks the solid',
       'or a painted stroke.',
       'The color stays on the',
-      'solid, with L, c, and h,',
-      'and on this controller.',
+      'solid. L, c, and h stay',
+      'on this controller.',
       'That pick stops the',
       'left-hand slice.',
       '',
@@ -703,9 +709,9 @@ AFRAME.registerComponent('oklab-rgb-solid', {
       '',
       'Left stick sets a color',
       'that stays on the solid.',
-      'Left and right change',
-      'hue. Up and down change',
-      'chroma. The index',
+      'Left and right change a.',
+      'Up and down change b.',
+      'The index',
       'trigger raises lightness',
       'and the grip lowers it.',
       'That slice stays until',
@@ -946,14 +952,16 @@ AFRAME.registerComponent('color-stick', {
   // A right-hand pick replaces this color and drops the slice.
   stopSlicing(lch) {
     this.mode = false;
-    if (lch) this.color = { L: lch.L, c: lch.c, h: lch.h };
+    if (lch) {
+      const lab = lchToLab(lch.L, lch.c, lch.h);
+      this.color = { L: lab.L, a: lab.a, b: lab.b };
+    }
     const solid = this.solid();
     if (solid) solid.endControllerCut();
   },
 
   applyLevelSlice(solid, color) {
-    const lab = lchToLab(color.L, color.c, color.h);
-    const local = labToWorld(lab.L, lab.a, lab.b);
+    const local = labToWorld(color.L, color.a, color.b);
     this.levelPoint.set(local.x, local.y, local.z);
     solid.heldRoot.updateWorldMatrix(true, false);
     solid.heldRoot.localToWorld(this.levelPoint);
@@ -972,7 +980,9 @@ AFRAME.registerComponent('color-stick', {
     const brush = this.brush();
     const manualSlice = brush && (brush.aHeld || brush.bHeld);
     if (!manualSlice) this.applyLevelSlice(solid, this.color);
-    if (brush && !brush.gripHeld) brush.placeOnSolid(this.color);
+    if (brush && !brush.gripHeld) {
+      brush.placeOnSolid(labToLch(this.color.L, this.color.a, this.color.b));
+    }
   },
 
   remove() {
@@ -1379,14 +1389,17 @@ AFRAME.registerComponent('quest-brush', {
     }
     this.pickMarker.visible = true;
     if (lch) {
-      this.pickReadout.userData.setText(formatLch(lch));
+      this.pickReadout.userData.setText(formatChromaHue(lch));
       this.readoutRight.set(1, 0, 0).applyQuaternion(this.pickMarker.quaternion);
       this.readoutUp.set(0, 1, 0).applyQuaternion(this.pickMarker.quaternion);
       this.pickReadout.position.copy(this.pickMarker.position)
-        .addScaledVector(this.readoutRight, 0.07)
-        .addScaledVector(this.readoutUp, 0.02);
+        .addScaledVector(this.readoutRight, 0.045)
+        .addScaledVector(this.readoutUp, 0.012);
+      this.pickReadout.scale.set(0.07, 0.07 * (320 / 512), 1);
       this.pickReadout.visible = true;
       this.showControllerReadout();
+    } else {
+      this.pickReadout.visible = false;
     }
   },
 

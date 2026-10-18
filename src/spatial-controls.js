@@ -27,7 +27,7 @@ export const CLUSTER_OFFSET = {
 };
 export const GIMBAL_OFFSET = { x: 0, y: 0, z: 0 };
 
-// Proxy-local thumbstick centers. Hue and chroma arrows sit on the left stick.
+// Proxy-local thumbstick centers. a and b arrows sit on the left stick.
 export const STICK_POSITION = {
   left: { x: -0.0179, y: -0.0106, z: -0.0313 },
   right: { x: 0.0179, y: -0.0106, z: -0.0313 },
@@ -108,7 +108,7 @@ export function signedAngleAround(from, to, axis) {
   return Math.atan2(dot(cross, axis), dot(from, to));
 }
 
-// Pad-local direction of a hue or chroma arrow. Up on the stick is toward
+// Pad-local direction of an a or b arrow. Up on the stick is toward
 // the controller tip, which is pad −Z. Right is pad +X.
 export function colorStickDirection(stick) {
   if (stick.y > 0) return { x: 0, y: 0, z: -1 };

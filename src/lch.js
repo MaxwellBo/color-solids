@@ -1,4 +1,5 @@
-import { worldToLab } from './scale.js';
+import { maxChroma } from './controller-color.js';
+import { SCALE, worldToLab } from './scale.js';
 
 const DEG = 180 / Math.PI;
 
@@ -19,8 +20,16 @@ export function formatLch({ L, c, h }) {
   return `L ${L.toFixed(2)}\nc ${c.toFixed(3)}\nh ${Math.round(h)}°`;
 }
 
-// How far, in the solid's local metres, the slice label sits from the level.
-export const SLICE_LABEL_REACH = 1.55;
+// c and h at the picked color. Lightness is the slice label, not this one.
+export function formatChromaHue({ c, h }) {
+  return `c ${c.toFixed(3)}\nh ${Math.round(h)}°`;
+}
+
+// World metres. The label is parented to the solid, so its local size is
+// this divided by the solid's scale.
+export const SLICE_LABEL_WORLD_WIDTH = 0.075;
+// World metres of air between the gamut and the label.
+export const SLICE_LABEL_CLEARANCE = 0.035;
 
 // The lightness the plane is cutting. A level blade shares one L. A tilted
 // blade uses the L where that plane crosses the neutral axis.
@@ -35,9 +44,23 @@ export function sliceLightness(point, normal) {
   return worldToLab(level.x, level.y, level.z).L;
 }
 
-// A point in the slice plane, outside the gamut, level with that L.
-export function sliceLabelPoint(point, normal, reach = SLICE_LABEL_REACH) {
+// Local metres from the neutral axis to the widest in-gamut color at this L.
+export function gamutRadiusAt(L) {
+  let chroma = 0;
+  for (let hue = 0; hue < 360; hue += 15) chroma = Math.max(chroma, maxChroma(L, hue));
+  return chroma * SCALE;
+}
+
+// Just outside the slice. labelHalfWidth and the clearance are in the same
+// local metres as the solid, so the text sits next to the rim.
+export function sliceLabelReach(L, labelHalfWidth) {
+  return gamutRadiusAt(L) + labelHalfWidth + SLICE_LABEL_CLEARANCE;
+}
+
+// A point in the slice plane, just outside the gamut, level with that L.
+export function sliceLabelPoint(point, normal, reach) {
   const level = sliceLevel(point, normal);
+  const distance = reach ?? sliceLabelReach(worldToLab(level.x, level.y, level.z).L, 0);
   let dx = 1 - normal.x * normal.x;
   let dy = -normal.y * normal.x;
   let dz = -normal.z * normal.x;
@@ -49,9 +72,9 @@ export function sliceLabelPoint(point, normal, reach = SLICE_LABEL_REACH) {
     length = Math.hypot(dx, dy, dz) || 1;
   }
   return {
-    x: level.x + (dx / length) * reach,
-    y: level.y + (dy / length) * reach,
-    z: level.z + (dz / length) * reach,
+    x: level.x + (dx / length) * distance,
+    y: level.y + (dy / length) * distance,
+    z: level.z + (dz / length) * distance,
   };
 }
 
