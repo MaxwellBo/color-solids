@@ -24,7 +24,6 @@ import {
   worldCutFromLocal,
 } from './hand.js';
 import { installScenePassthrough } from './passthrough.js';
-import { EXHIBIT_VERSION } from './version.js';
 import {
   createReadout,
   formatLch,
@@ -198,10 +197,6 @@ AFRAME.registerComponent('oklab-rgb-solid', {
     this.refreshQueued = false;
     this.planePoint = new THREE.Vector3();
     this.planeNormal = new THREE.Vector3();
-    this.cameraWorld = new THREE.Vector3();
-    this.panelWorld = new THREE.Vector3();
-    this.parentQuaternion = new THREE.Quaternion();
-    this.parentEuler = new THREE.Euler(0, 0, 0, 'YXZ');
     this.rayOrigin = new THREE.Vector3();
     this.rayDirection = new THREE.Vector3();
     this.rayPoint = new THREE.Vector3();
@@ -271,7 +266,6 @@ AFRAME.registerComponent('oklab-rgb-solid', {
 
     this.buildCutPlane();
     this.buildSlider();
-    this.buildPanel();
     this.refreshSlice();
     this.updateClipPlane();
   },
@@ -282,10 +276,6 @@ AFRAME.registerComponent('oklab-rgb-solid', {
   },
 
   play() {
-    this.onEnterVR = () => { this.panel.object3D.visible = true; };
-    this.onExitVR = () => { this.panel.object3D.visible = false; };
-    this.el.sceneEl.addEventListener('enter-vr', this.onEnterVR);
-    this.el.sceneEl.addEventListener('exit-vr', this.onExitVR);
     this.onKeyDown = (event) => {
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
       if (event.key === 'ArrowUp') {
@@ -303,13 +293,10 @@ AFRAME.registerComponent('oklab-rgb-solid', {
 
   pause() {
     window.removeEventListener('keydown', this.onKeyDown);
-    this.el.sceneEl.removeEventListener('enter-vr', this.onEnterVR);
-    this.el.sceneEl.removeEventListener('exit-vr', this.onExitVR);
   },
 
   tick() {
     this.updateClipPlane();
-    this.billboardPanel();
     if (this.sliderDrag) this.applySliderRay();
   },
 
@@ -577,19 +564,6 @@ AFRAME.registerComponent('oklab-rgb-solid', {
     this.planeAnchor.add(this.sectionMesh);
   },
 
-  billboardPanel() {
-    const camera = this.el.sceneEl.camera;
-    if (!camera || !this.panel || !this.panel.object3D || !this.panel.object3D.parent) return;
-    this.panel.object3D.parent.updateWorldMatrix(true, false);
-    camera.getWorldPosition(this.cameraWorld);
-    this.panel.object3D.getWorldPosition(this.panelWorld);
-    const dx = this.cameraWorld.x - this.panelWorld.x;
-    const dz = this.cameraWorld.z - this.panelWorld.z;
-    this.panel.object3D.parent.getWorldQuaternion(this.parentQuaternion);
-    this.parentEuler.setFromQuaternion(this.parentQuaternion, 'YXZ');
-    this.panel.object3D.rotation.set(0, Math.atan2(dx, dz) - this.parentEuler.y, 0);
-  },
-
   buildSlider() {
     this.slider = document.createElement('a-entity');
     this.slider.setAttribute('class', 'clickable');
@@ -647,82 +621,6 @@ AFRAME.registerComponent('oklab-rgb-solid', {
     closestPointOnRayToLine(raycaster.ray, this.rayOrigin, this.rayDirection, this.rayPoint);
     this.slider.object3D.worldToLocal(this.rayPoint);
     this.setLightness((this.rayPoint.y - BASE_Y) / SCALE);
-  },
-
-  buildPanel() {
-    this.panel = document.createElement('a-entity');
-    this.panel.setAttribute('position', { x: -1.5, y: 1.7, z: 0.15 });
-    this.panel.setAttribute('visible', false);
-    this.el.appendChild(this.panel);
-
-    const backing = document.createElement('a-plane');
-    backing.setAttribute('width', 1.12);
-    backing.setAttribute('height', 2.95);
-    backing.setAttribute('position', { x: 0, y: -1.355, z: -0.02 });
-    backing.setAttribute('material', { color: '#141820', shader: 'flat', opacity: 0.88 });
-    this.panel.appendChild(backing);
-
-    const body = document.createElement('a-text');
-    body.setAttribute('value', [
-      `v${EXHIBIT_VERSION}`,
-      '',
-      'The solid sits on the',
-      'left controller.',
-      'Lightness follows its aim.',
-      'Your room shows through.',
-      '',
-      'Hold A on the solid.',
-      'The blade follows where',
-      'it points, like a',
-      'spatula. Below stays',
-      'solid. Above, only the',
-      'edges. The cut sticks',
-      'to the solid.',
-      '',
-      'Hold B for a level cut.',
-      'It stays flat in a and b,',
-      'so sliding it only',
-      'changes lightness.',
-      '',
-      'Tap A or B while',
-      'pointing away to close',
-      'the cut. Its L floats',
-      'beside the slice.',
-      '',
-      'Hold the back trigger.',
-      'Its ray picks the solid',
-      'or a painted stroke.',
-      'The color stays on the',
-      'solid, with L, c, and h,',
-      'and on this controller.',
-      'That pick stops the',
-      'left-hand slice.',
-      '',
-      'Hold the trigger to paint',
-      'with the picked color.',
-      '',
-      'Left stick sets a color',
-      'that stays on the solid.',
-      'Left and right change',
-      'hue. Up and down change',
-      'chroma. The index',
-      'trigger raises lightness',
-      'and the grip lowers it.',
-      'That slice stays until',
-      'a right-hand pick.',
-      '',
-      'Y on the left grows the',
-      'solid. X shrinks it.',
-      'Flick the right stick',
-      'sideways to turn.',
-    ].join('\n'));
-    body.setAttribute('color', '#f4f0e8');
-    body.setAttribute('width', 0.98);
-    body.setAttribute('wrap-count', 26);
-    body.setAttribute('align', 'left');
-    body.setAttribute('baseline', 'top');
-    body.setAttribute('position', { x: -0.46, y: 0.05, z: 0 });
-    this.panel.appendChild(body);
   },
 });
 
