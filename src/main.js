@@ -16,6 +16,7 @@ import {
   HAND_OFFSET_Z,
   HAND_ROTATION_X,
   HAND_SCALE,
+  nextHeldScale,
   levelCutNormal,
   localCutFromWorld,
   PLANE_RADIUS,
@@ -189,6 +190,7 @@ AFRAME.registerComponent('oklab-rgb-solid', {
     this.rayDirection = new THREE.Vector3();
     this.rayPoint = new THREE.Vector3();
     this.held = false;
+    this.heldScale = HAND_SCALE;
     this.handEl = null;
     this.cutActive = false;
     this.cutLocalPoint = new THREE.Vector3();
@@ -292,6 +294,11 @@ AFRAME.registerComponent('oklab-rgb-solid', {
     if (this.sliderDrag) this.applySliderRay();
   },
 
+  setHeldScale(scale) {
+    this.heldScale = scale;
+    if (this.held && this.heldRoot) this.heldRoot.scale.setScalar(scale);
+  },
+
   // Parent the colored solid to a controller (or a stand-in object). The
   // slider and plinth stay where they are.
   attachToObject(object3D) {
@@ -299,7 +306,7 @@ AFRAME.registerComponent('oklab-rgb-solid', {
     object3D.add(this.heldRoot);
     this.heldRoot.position.set(0, 0, HAND_OFFSET_Z);
     this.heldRoot.rotation.set(HAND_ROTATION_X, 0, 0);
-    this.heldRoot.scale.setScalar(HAND_SCALE);
+    this.heldRoot.scale.setScalar(this.heldScale);
     this.setExhibitChromeVisible(false);
     this.endControllerCut();
     this.el.sceneEl.emit('solid-held', { held: true });
@@ -637,7 +644,9 @@ AFRAME.registerComponent('oklab-rgb-solid', {
       'Hold the trigger to paint',
       'with the picked color.',
       '',
-      'Left stick walks.',
+      'Left stick up grows',
+      'the solid. Down shrinks',
+      'it. Left and right walk.',
       'Flick the right stick',
       'sideways to turn.',
     ].join('\n'));
@@ -807,16 +816,20 @@ AFRAME.registerComponent('locomotion', {
     });
   },
   tick(_time, deltaMs) {
-    if (Math.abs(this.axisX) < 0.18 && Math.abs(this.axisY) < 0.18) return;
+    const dt = deltaMs / 1000;
+    if (Math.abs(this.axisY) >= 0.18) {
+      const solid = document.getElementById('solid').components['oklab-rgb-solid'];
+      if (solid) solid.setHeldScale(nextHeldScale(solid.heldScale, this.axisY, dt));
+    }
+    if (Math.abs(this.axisX) < 0.18) return;
     const camera = this.el.sceneEl.camera;
     camera.getWorldDirection(this.forward);
     this.forward.y = 0;
     if (this.forward.lengthSq() < 1e-6) return;
     this.forward.normalize();
     this.right.crossVectors(this.forward, this.up);
-    const distance = this.data.speed * (deltaMs / 1000);
+    const distance = this.data.speed * dt;
     const world = document.getElementById('world').object3D;
-    world.position.addScaledVector(this.forward, this.axisY * distance);
     world.position.addScaledVector(this.right, -this.axisX * distance);
     const horizontal = Math.hypot(world.position.x, world.position.z);
     if (horizontal > 12) {

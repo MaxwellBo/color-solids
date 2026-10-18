@@ -22,8 +22,8 @@ const BUTTON_LABEL = {
   'btn-b': 'B',
   'btn-grip': 'Pick',
   'btn-trigger': 'Paint',
-  'btn-walk-forward': 'Forward',
-  'btn-walk-back': 'Back',
+  'btn-scale-up': 'Bigger',
+  'btn-scale-down': 'Smaller',
   'btn-walk-left': 'Left',
   'btn-walk-right': 'Right',
   'btn-turn-left': 'Turn left',
@@ -35,7 +35,8 @@ const HANDS = [
     name: 'left',
     title: 'Left controller',
     groups: [
-      { title: 'Walk', controls: STICK_CONTROLS.filter((item) => item.hand === 'left') },
+      { title: 'Size', controls: STICK_CONTROLS.filter((item) => item.hand === 'left' && item.axis === 'y') },
+      { title: 'Walk', controls: STICK_CONTROLS.filter((item) => item.hand === 'left' && item.axis === 'x') },
     ],
   },
   {

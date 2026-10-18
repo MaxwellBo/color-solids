@@ -420,6 +420,11 @@ AFRAME.registerComponent('controller-proxy', {
       if (control.hand !== 'left' || control.flick) continue;
       const material = basicMaterial(0xf4f0e8);
       const group = arrowMesh(0.022, 0.0055, material);
+      if (control.axis === 'y') {
+        const label = labelSprite(control.value > 0 ? '+' : '−', 0.016);
+        label.position.set(0.012, 0.01, 0);
+        group.add(label);
+      }
       this.pad.add(group);
       const widget = registerControl({
         id: control.id,
@@ -488,16 +493,21 @@ AFRAME.registerComponent('controller-proxy', {
     this.right.crossVectors(this.forward, Y_AXIS).normalize();
     this.pad.updateWorldMatrix(true, true);
     this.pad.getWorldQuaternion(this.padQuat).invert();
-    const travel = new THREE.Vector3();
     for (const group of this.walkArrows) {
       const stick = group.userData.control.stick;
-      const direction = travelDirection(stick, this.forward, this.right);
-      travel.set(direction.x, direction.y, direction.z).applyQuaternion(this.padQuat);
-      travel.y = 0;
-      if (travel.lengthSq() < 1e-6) continue;
-      travel.normalize();
-      group.position.copy(travel).multiplyScalar(0.014);
-      group.quaternion.setFromUnitVectors(Y_AXIS, travel);
+      if (stick.y !== 0) {
+        // Stick up points toward the controller tip, which is pad −Z.
+        const sign = stick.y > 0 ? -1 : 1;
+        this.labelScratch.set(0, 0, sign);
+      } else {
+        const direction = travelDirection(stick, this.forward, this.right);
+        this.labelScratch.set(direction.x, direction.y, direction.z).applyQuaternion(this.padQuat);
+        this.labelScratch.y = 0;
+      }
+      if (this.labelScratch.lengthSq() < 1e-6) continue;
+      this.labelScratch.normalize();
+      group.position.copy(this.labelScratch).multiplyScalar(0.014);
+      group.quaternion.setFromUnitVectors(Y_AXIS, this.labelScratch);
     }
   },
 

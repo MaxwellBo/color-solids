@@ -6,6 +6,9 @@ import {
   bladeNormal,
   HAND_OFFSET_Z,
   HAND_SCALE,
+  HELD_SCALE_MAX,
+  HELD_SCALE_MIN,
+  nextHeldScale,
   heldPoint,
   levelCutNormal,
   localCutFromWorld,
@@ -14,6 +17,16 @@ import {
   worldCutFromLocal,
   worldCutPlanes,
 } from './hand.js';
+
+test('left stick up grows the held solid and down shrinks it', () => {
+  const grown = nextHeldScale(HAND_SCALE, 1, 1);
+  const shrunk = nextHeldScale(HAND_SCALE, -1, 1);
+  assert.ok(grown > HAND_SCALE);
+  assert.ok(shrunk < HAND_SCALE);
+  assert.equal(nextHeldScale(HELD_SCALE_MAX, 1, 5), HELD_SCALE_MAX);
+  assert.equal(nextHeldScale(HELD_SCALE_MIN, -1, 5), HELD_SCALE_MIN);
+  assert.equal(nextHeldScale(HAND_SCALE, 0, 1), HAND_SCALE);
+});
 
 test('lightness aims along the controller pointing axis', () => {
   const origin = heldPoint({ x: 0, y: 0, z: 0 });
