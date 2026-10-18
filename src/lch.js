@@ -20,7 +20,7 @@ export function formatLch({ L, c, h }) {
 }
 
 // How far, in the solid's local metres, the slice label sits from the level.
-export const SLICE_LABEL_REACH = 0.82;
+export const SLICE_LABEL_REACH = 1.55;
 
 // The lightness the plane is cutting. A level blade shares one L. A tilted
 // blade uses the L where that plane crosses the neutral axis.

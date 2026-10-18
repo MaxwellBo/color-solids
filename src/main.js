@@ -994,9 +994,9 @@ AFRAME.registerComponent('quest-brush', {
     this.pickReadout = createReadout(THREE, { width: 512, height: 320, scale: 0.12 });
     this.pickReadout.name = 'pick-readout';
     this.el.sceneEl.object3D.add(this.pickReadout);
-    this.controllerReadout = createReadout(THREE, { width: 512, height: 320, scale: 0.055 });
+    this.controllerReadout = createReadout(THREE, { width: 512, height: 320, scale: 0.09 });
     this.controllerReadout.name = 'controller-readout';
-    this.controllerReadout.position.set(0.03, 0.028, -0.045);
+    this.controllerReadout.position.set(0.2, 0.14, -0.08);
     this.el.object3D.add(this.controllerReadout);
     this.pickedLch = null;
     this.cameraPosition = new THREE.Vector3();
